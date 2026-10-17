@@ -60,12 +60,18 @@ export default function HomePage() {
       ) : (
         <>
           <ContinueReading doc={current} empty={documents.length === 0} />
+          <Stats documents={documents} annotations={annotations.data} />
           <DailyQuote items={annotations.data} />
           <div className="grid items-start gap-6 md:grid-cols-2">
-            <RecentlyOpened documents={documents} />
-            <LatestAnnotations items={annotations.data} />
+            <div className="flex min-w-0 flex-col gap-6">
+              <StorageCard storage={storage.data} failed={!!storage.error} />
+              <WeekChart documents={documents} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-6">
+              <RecentlyOpened documents={documents} />
+              <LatestAnnotations items={annotations.data} />
+            </div>
           </div>
-          <Footer documents={documents} annotations={annotations.data} storage={storage.data} />
         </>
       )}
     </PageShell>
@@ -196,36 +202,105 @@ function LatestAnnotations({ items }: { items: AnnotationSummary[] | null }) {
   );
 }
 
-/** One quiet line of totals; Storage opens a small breakdown instead of taking up a card. */
-function Footer({ documents, annotations, storage }: { documents: PdfDocument[]; annotations: AnnotationSummary[] | null; storage: StorageOverview | null }) {
+function Stats({ documents, annotations }: { documents: PdfDocument[]; annotations: AnnotationSummary[] | null }) {
   const folders = new Set(documents.map((d) => d.folder)).size;
+  const opened = documents.filter((d) => d.totalPages > 0);
+  const pagesRead = opened.reduce((n, d) => n + d.lastPage, 0);
+  const pagesKnown = opened.reduce((n, d) => n + d.totalPages, 0);
   const finished = documents.filter(isFinished).length;
-  const rows: MenuEntry[] = storage
-    ? [
-        { heading: 'Storage used' },
-        ...storage.folders.map((f) => ({ label: f.name, meta: formatSize(f.size) })),
-        { label: 'Backups and annotations', meta: formatSize(storage.backups + storage.annotations + storage.other) },
-      ]
-    : [{ label: 'Storage usage is unavailable' }];
+  const cards = [
+    { label: 'Documents', value: documents.length.toLocaleString(), sub: `in ${plural(folders, 'folder')}` },
+    { label: 'Pages read', value: pagesRead.toLocaleString(), sub: `of ${pagesKnown.toLocaleString()} in opened books` },
+    { label: 'Finished', value: finished.toLocaleString(), sub: `${opened.length - finished} in progress` },
+    { label: 'Annotations', value: annotations ? annotations.length.toLocaleString() : '–', sub: 'highlights and notes', to: '/annotations' },
+  ];
   return (
-    <footer className="mute flex flex-wrap items-center justify-center gap-x-1 gap-y-0 pt-2">
-      <span className="px-2">{plural(documents.length, 'document')} in {plural(folders, 'folder')}</span>
-      <span aria-hidden="true">·</span>
-      <span className="px-2">{finished} finished</span>
-      <span aria-hidden="true">·</span>
-      <Link to="/annotations" className="focus-ring inline-flex min-h-11 items-center px-2 underline">{annotations ? plural(annotations.length, 'annotation') : 'Annotations'}</Link>
-      {storage && (
+    <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {cards.map((c) => {
+        const body = (
+          <>
+            <div className="mute">{c.label}</div>
+            <div className="mt-1 text-3xl font-bold tracking-tight">{c.value}</div>
+            <div className="mute">{c.sub}</div>
+          </>
+        );
+        return c.to ? (
+          <Link key={c.label} to={c.to} className="card focus-ring transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/60">{body}</Link>
+        ) : (
+          <div key={c.label} className="card">{body}</div>
+        );
+      })}
+    </section>
+  );
+}
+
+function StorageCard({ storage, failed }: { storage: StorageOverview | null; failed: boolean }) {
+  const rows = storage
+    ? [
+        ...storage.folders.map((f) => ({ name: f.name, size: f.size })),
+        { name: 'Backups and annotations', size: storage.backups + storage.annotations + storage.other },
+      ]
+    : [];
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-base font-bold"><Icon name="disk" className="h-[18px] w-[18px] text-gray-500 dark:text-gray-400" />Storage</h2>
+        <span className="mute">Cloudflare R2</span>
+      </div>
+      {storage ? (
         <>
-          <span aria-hidden="true">·</span>
-          <Menu
-            label="Storage breakdown"
-            entries={rows}
-            align="left"
-            buttonClassName="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[13px] text-gray-500 underline hover:bg-gray-200/70 dark:text-gray-400 dark:hover:bg-gray-700"
-            trigger={<><Icon name="disk" className="h-4 w-4" />{formatSize(storage.total)} used</>}
-          />
+          <div className="mb-3.5 mt-3 flex flex-wrap items-baseline gap-2">
+            <span className="text-3xl font-bold tracking-tight">{formatSize(storage.total)}</span>
+            <span className="mute">used</span>
+          </div>
+          <ul>
+            {rows.map((r) => (
+              <li key={r.name} className="flex items-center gap-3 border-t border-gray-100 py-2.5 dark:border-gray-700/60">
+                <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                <b className="mute font-semibold">{formatSize(r.size)}</b>
+              </li>
+            ))}
+          </ul>
         </>
+      ) : (
+        <p className="mute mt-3">{failed ? 'Storage usage is unavailable right now.' : 'Calculating…'}</p>
       )}
-    </footer>
+    </div>
+  );
+}
+
+function WeekChart({ documents }: { documents: PdfDocument[] }) {
+  const days = useMemo(() => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    return Array.from({ length: 7 }, (_, i) => {
+      const t = start - (6 - i) * DAY;
+      const count = documents.filter((d) => {
+        if (!d.lastOpened) return false;
+        const o = new Date(d.lastOpened);
+        return new Date(o.getFullYear(), o.getMonth(), o.getDate()).getTime() === t;
+      }).length;
+      return { label: new Date(t).toLocaleDateString('en-US', { weekday: 'short' }), count };
+    });
+  }, [documents]);
+  const max = Math.max(1, ...days.map((d) => d.count));
+  const summary = days.map((d) => `${d.label} ${d.count}`).join(', ');
+  return (
+    <div className="card">
+      <h2 className="mb-1 text-base font-bold">Opened this week</h2>
+      <div className="mute mb-3.5">Documents you last opened on each day</div>
+      <div role="img" aria-label={`Documents opened per day: ${summary}`} className="flex h-[140px] items-end gap-3">
+        {days.map((d, i) => (
+          <div key={i} className="flex flex-1 flex-col items-center justify-end text-center">
+            {d.count > 0 && <span className="mute mb-1">{d.count}</span>}
+            <div
+              className={`w-full rounded-t-lg ${d.count ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-gray-200 dark:bg-gray-700'}`}
+              style={{ height: d.count ? `${Math.max(12, (d.count / max) * 90)}px` : '4px' }}
+            />
+            <div className="mute mt-1.5">{d.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
