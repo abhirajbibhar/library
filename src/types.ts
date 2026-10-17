@@ -55,3 +55,27 @@ export interface AnnotationsFile {
 export type AnnotationOp =
   | { op: 'delete'; id: string }
   | { op: 'upsert'; id: string; page: number; type: string; text: string; note: string; data: Record<string, unknown> };
+
+/** Shape of GET /api/storage */
+export interface StorageOverview {
+  total: number; // bytes used in the whole bucket
+  folders: { name: string; size: number; count: number }[];
+  backups: number; // _versions/
+  annotations: number; // Annotation/
+  other: number;
+}
+
+/** One entry of GET /api/annotations (every live annotation across all PDFs, newest first). */
+export interface AnnotationSummary {
+  docId: string;
+  folder: string;
+  docName: string;
+  id: string;
+  page: number;
+  type: string;
+  text: string; // selected text of a highlight ('' for a plain note)
+  note: string;
+  color: string | null; // "#rrggbb" when the viewer saved one
+  created: string;
+  modified: string;
+}

@@ -1,5 +1,5 @@
 import { ConflictError, type StorageBackend, type RequestOptions, type VersionedPdf } from './storage-interface';
-import type { AnnotationOp, AnnotationsFile, PdfDocument, ReadingProgress } from '../types';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, StorageOverview } from '../types';
 import { API_BASE } from '../config';
 
 /**
@@ -70,6 +70,49 @@ export class RemoteStorageBackend implements StorageBackend {
     if (!res.ok) await fail(res, 'Failed to save PDF');
     const body = await res.json().catch(() => null);
     return body?.etag ?? null;
+  }
+
+  /** XHR instead of fetch: fetch cannot report upload progress. */
+  uploadDocument(
+    id: string,
+    file: Blob,
+    opts: RequestOptions & { onProgress?: (fraction: number) => void } = {},
+  ): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', `${API_BASE}/documents/${enc(id)}`);
+      xhr.setRequestHeader('Content-Type', 'application/pdf');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        let body: { etag?: string; error?: string } | null = null;
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          /* not JSON */
+        }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(body?.etag ?? null);
+        else reject(new Error(body?.error ? body.error : `Upload failed (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+      opts.signal?.addEventListener('abort', () => xhr.abort());
+      xhr.send(file);
+    });
+  }
+
+  async getStorage(opts: RequestOptions = {}): Promise<StorageOverview> {
+    const res = await fetch(`${API_BASE}/storage`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to fetch storage');
+    return res.json();
+  }
+
+  async getAllAnnotations(opts: RequestOptions = {}): Promise<AnnotationSummary[]> {
+    const res = await fetch(`${API_BASE}/annotations`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to fetch annotations');
+    const body = await res.json();
+    return Array.isArray(body?.items) ? body.items : [];
   }
 
   async getMetadata(id: string, opts: RequestOptions = {}): Promise<ReadingProgress> {

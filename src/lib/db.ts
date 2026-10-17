@@ -1,4 +1,4 @@
-import type { AnnotationOp, AnnotationsFile, PdfDocument, ReadingProgress } from '../types';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, StorageOverview } from '../types';
 import type { StorageBackend, RequestOptions, VersionedPdf } from './storage-interface';
 export { ConflictError } from './storage-interface';
 import { RemoteStorageBackend } from './remote-storage';
@@ -24,3 +24,11 @@ export const getAnnotations = (id: string, opts?: RequestOptions): Promise<Annot
   storage.getAnnotations(id, opts);
 export const patchAnnotations = (id: string, ops: AnnotationOp[], opts?: RequestOptions): Promise<number> =>
   storage.patchAnnotations(id, ops, opts);
+export const uploadDocument = (
+  id: string,
+  file: Blob,
+  opts?: RequestOptions & { onProgress?: (fraction: number) => void },
+): Promise<string | null> => storage.uploadDocument(id, file, opts);
+export const getStorage = (opts?: RequestOptions): Promise<StorageOverview> => storage.getStorage(opts);
+export const getAllAnnotations = (opts?: RequestOptions): Promise<AnnotationSummary[]> =>
+  storage.getAllAnnotations(opts);

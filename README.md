@@ -304,3 +304,24 @@ MIT
 ## Author
 
 Built for reading Babasaheb Dr. B.R. Ambedkar's Writings and Speeches.
+
+## Pages and routes
+
+The app is one Cloudflare Worker that serves both the built frontend (`dist/`, via Workers Static Assets) and the API under `/api/*`.
+
+| Route | Page |
+| --- | --- |
+| `#/` | Home dashboard: continue reading, stats, daily quote (one of your highlights), storage used, recent documents and annotations |
+| `#/library` | Explore Library: every folder is a shelf of books (`?q=` pre-fills the search) |
+| `#/folder/<name>` | One folder: summary, search, sort, filters, grid or list |
+| `#/annotations` | All highlights and notes across the library, grouped by document |
+| `#/upload` | Add PDFs to an existing or new folder (progress, duplicate check, 95 MB limit) |
+| `#/viewer/<id>` | The PDF reader |
+
+### API added for these pages
+
+- `GET /api/storage` returns bytes used in the bucket, per folder, plus backups and annotation files.
+- `GET /api/annotations` returns every live annotation across all PDFs, newest first (up to 300 annotation files, 2000 items).
+- Uploads use the existing `PUT /api/documents/<folder>/<file>.pdf`. A new folder is created automatically by the first upload.
+
+Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).

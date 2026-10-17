@@ -752,7 +752,7 @@ export default function ViewerPage() {
               Try again
             </button>
             <Link
-              to="/"
+              to="/library"
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
             >
               Back to Library
@@ -772,7 +772,7 @@ export default function ViewerPage() {
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-2 flex items-center justify-between shadow-sm z-10 transition-colors">
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <Link
-            to="/"
+            to="/library"
             onClick={confirmLeave}
             aria-label="Back to library"
             className="flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 sm:px-2 py-1.5 rounded-md transition-colors text-xs sm:text-sm font-medium shrink-0"

@@ -196,6 +196,14 @@ export default {
         return await listDocuments(env, cors);
       }
 
+      if (path === '/api/storage' && request.method === 'GET') {
+        return await getStorage(env, cors);
+      }
+
+      if (path === '/api/annotations' && request.method === 'GET') {
+        return await listAllAnnotations(env, cors);
+      }
+
       if (path.startsWith('/api/metadata/') && path.length > '/api/metadata/'.length) {
         const key = decodeKey(path, '/api/metadata/');
         assertPdfKey(key);
@@ -226,6 +234,105 @@ export default {
     }
   },
 };
+
+
+// ---------------------------------------------------------------- overview endpoints (home dashboard)
+
+async function listAll(env: Env, prefix?: string): Promise<R2Object[]> {
+  const out: R2Object[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.PDF_BUCKET.list({ prefix, cursor });
+    out.push(...page.objects);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return out;
+}
+
+/** GET /api/storage – bytes used in the bucket, per folder, plus backups and annotation files. */
+async function getStorage(env: Env, cors: Record<string, string>): Promise<Response> {
+  const objects = await listAll(env);
+  const folders = new Map<string, { size: number; count: number }>();
+  let total = 0;
+  let backups = 0;
+  let annotations = 0;
+  let other = 0;
+
+  for (const o of objects) {
+    total += o.size;
+    const top = folderOf(o.key);
+    if (!o.key.includes('/')) other += o.size;
+    else if (top === '_versions') backups += o.size;
+    else if (top.toLowerCase() === ANNOTATIONS_FOLDER.toLowerCase()) annotations += o.size;
+    else if (isHiddenFolder(top)) other += o.size;
+    else {
+      const f = folders.get(top) ?? { size: 0, count: 0 };
+      f.size += o.size;
+      if (/\.pdf$/i.test(o.key)) f.count += 1;
+      folders.set(top, f);
+    }
+  }
+
+  return json(
+    {
+      total,
+      folders: [...folders.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.size - a.size),
+      backups,
+      annotations,
+      other,
+    },
+    cors,
+  );
+}
+
+const MAX_ANNOTATION_FILES = 300;
+const MAX_ANNOTATION_ITEMS = 2000;
+
+/** GET /api/annotations – every live annotation across all PDFs, newest first (for the Annotations page). */
+async function listAllAnnotations(env: Env, cors: Record<string, string>): Promise<Response> {
+  const files = (await listAll(env, `${ANNOTATIONS_FOLDER}/`))
+    .filter((o) => o.key.endsWith('.json'))
+    .slice(0, MAX_ANNOTATION_FILES);
+
+  const items: Record<string, unknown>[] = [];
+  for (let i = 0; i < files.length; i += 10) {
+    await Promise.all(
+      files.slice(i, i + 10).map(async (o) => {
+        const obj = await env.PDF_BUCKET.get(o.key);
+        if (!obj) return;
+        try {
+          const data = JSON.parse(await obj.text()) as AnnotationsFile;
+          const docId =
+            typeof data.pdfId === 'string' && data.pdfId
+              ? data.pdfId
+              : o.key.slice(ANNOTATIONS_FOLDER.length + 1).replace(/\.json$/i, '.pdf');
+          for (const a of Object.values(data.annotations ?? {})) {
+            if (!a || a.deleted) continue;
+            const raw = (a.data as { color?: unknown } | undefined)?.color;
+            items.push({
+              docId,
+              folder: folderOf(docId),
+              docName: docId.split('/').pop()!.replace(/\.pdf$/i, ''),
+              id: a.id,
+              page: a.page,
+              type: a.type,
+              text: a.text,
+              note: a.note,
+              color: typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw) ? raw : null,
+              created: a.created,
+              modified: a.modified,
+            });
+          }
+        } catch {
+          /* one unreadable file must not hide everyone else's annotations */
+        }
+      }),
+    );
+  }
+
+  items.sort((a, b) => Date.parse(String(b.modified)) - Date.parse(String(a.modified)));
+  return json({ total: items.length, items: items.slice(0, MAX_ANNOTATION_ITEMS) }, cors);
+}
 
 // ---------------------------------------------------------------- metadata (optimistic concurrency)
 
