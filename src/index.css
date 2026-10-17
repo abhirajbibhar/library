@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/*
+ * The old global `* { transition: ... }` rule animated every element on the page
+ * (hurting scroll/layout performance, especially around the PDF viewer). Components already
+ * opt in with Tailwind's `transition-colors`, so it was removed.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Mobile viewport fix: `100vh` ignores the browser's collapsing address/tool bars, so full-height
+ * layouts overflowed and the bottom of the viewer was unreachable. `dvh` follows the visible area.
+ * Fallback for browsers without dvh support (pre-2022).
+ */
+@supports not (height: 100dvh) {
+  .h-dvh { height: 100vh; }
+  .min-h-dvh { min-height: 100vh; }
+}
+
+/* The viewer manages its own scrolling; stop the page behind it from scrolling/bouncing. */
+html, body, #root {
+  min-height: 100%;
+  overscroll-behavior: none;
+}

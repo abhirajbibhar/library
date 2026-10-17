@@ -1,0 +1,29 @@
+name = "library"
+main = "workers/worker.ts"
+compatibility_date = "2026-01-01"
+
+# `wrangler deploy` (and `wrangler dev`) first runs this to build the frontend into dist/,
+# so a plain `npx wrangler deploy` - e.g. from Cloudflare's GitHub integration - ships site + API in one go.
+[build]
+command = "npm run build"
+
+# Serve the built frontend (Vite -> dist/) from this same Worker.
+# Only /api/* runs the Worker code; every other path is answered straight from the static assets
+# (free, unlimited requests), and unknown paths fall back to index.html.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# Single R2 Bucket for all PDFs
+# Any top-level folder containing PDFs becomes a section in the library (headed by the folder name),
+# e.g. baws/Speeches/*.pdf, baws/Letters/*.pdf. Folders starting with "_" or ".", and "Annotation" (per-PDF annotation JSON, created automatically), are reserved.
+# An optional <folder>/metadata.json may set { "title": "Heading to show" } – it is created for you otherwise.
+[[r2_buckets]]
+binding = "PDF_BUCKET"
+bucket_name = "baws"
+
+# Lock CORS to your site once deployed (default is "*", i.e. any origin may call the API).
+# [vars]
+# ALLOWED_ORIGIN = "https://library.abhirajbibhar.workers.dev"   # only needed if another origin calls the API

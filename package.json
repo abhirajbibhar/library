@@ -1,0 +1,35 @@
+{
+  "name": "library",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "preview": "vite preview",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "r2:list": "wrangler r2 object list baws",
+    "r2:upload": "scripts/r2-upload.sh",
+    "test:api": "curl https://library.abhirajbibhar.workers.dev/api/documents",
+    "dev:worker": "wrangler dev"
+  },
+  "dependencies": {
+    "@embedpdf/react-pdf-viewer": "^2.15.1",
+    "@fontsource/open-sans": "^5.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.30.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261013.1",
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^5.7.0",
+    "vite": "^6.3.5",
+    "wrangler": "^4.149.0"
+  }
+}
