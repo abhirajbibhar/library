@@ -20,10 +20,11 @@ export default function App() {
       <HashRouter>
         <Suspense fallback={<PageSpinner />}>
           <Routes>
-            <Route path="/" element={<Navigate to="/library" replace />} />
-            <Route path="/library" element={<LibraryPage />} />
+            <Route path="/" element={<LibraryPage />} />
+            {/* Old bookmarks (#/library) still work */}
+            <Route path="/library" element={<Navigate to="/" replace />} />
             <Route path="/viewer/:id" element={<ViewerPage />} />
-            <Route path="*" element={<Navigate to="/library" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </HashRouter>
