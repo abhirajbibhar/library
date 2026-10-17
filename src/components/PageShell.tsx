@@ -40,18 +40,15 @@ export function PageHeader({ title, subtitle, backTo, backLabel = 'Back', action
   return (
     <header className="flex items-center gap-3.5">
       {backTo && (
-        <Link to={backTo} className="btn-ghost btn-sq focus-ring" aria-label={backLabel} title={backLabel}>
+        <Link to={backTo} className="btn-plain focus-ring -ml-2" aria-label={backLabel} title={backLabel}>
           <Icon name="back" />
         </Link>
       )}
       <div className="min-w-0 flex-1">
-        <h1 className="text-2xl font-bold leading-tight sm:text-[28px]">{title}</h1>
+        <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{title}</h1>
         {subtitle && <div className="mute mt-0.5">{subtitle}</div>}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {actions}
-        <ThemeToggle />
-      </div>
+      {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
     </header>
   );
 }
@@ -61,16 +58,18 @@ export function SearchField({
   onChange,
   placeholder,
   className = '',
+  autoFocus = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
   className?: string;
+  autoFocus?: boolean;
 }) {
   return (
     <label className={`field ${className}`}>
       <Icon name="search" className="h-[18px] w-[18px] shrink-0 text-gray-500 dark:text-gray-400" />
-      <input type="search" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
+      <input type="search" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-label={placeholder} autoFocus={autoFocus} />
     </label>
   );
 }
@@ -137,7 +136,7 @@ export function Notice({
   return (
     <div
       role={tone === 'error' ? 'alert' : undefined}
-      className={`card flex flex-col items-center gap-2 py-10 text-center ${tone === 'error' ? 'border-red-300 dark:border-red-800' : ''}`}
+      className={`card flex flex-col items-center gap-2 py-10 text-center ${tone === 'error' ? 'ring-red-300 dark:ring-red-800' : ''}`}
     >
       <div className="text-base font-bold">{title}</div>
       {children && <div className="mute max-w-md">{children}</div>}

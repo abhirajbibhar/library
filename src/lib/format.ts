@@ -7,7 +7,9 @@ export const statusOf = (d: PdfDocument): DocStatus => (isFinished(d) ? 'done' :
 export const progressPct = (d: PdfDocument) =>
   d.totalPages > 0 ? Math.min(100, Math.round((d.lastPage / d.totalPages) * 100)) : 0;
 
-export const viewerPath = (id: string) => `/viewer/${encodeURIComponent(id)}`;
+/** Opens the reader; `page` jumps straight to that page instead of the saved position. */
+export const viewerPath = (id: string, page?: number) =>
+  `/viewer/${encodeURIComponent(id)}${page && page > 0 ? `?page=${Math.floor(page)}` : ''}`;
 export const folderPath = (folder: string) => `/folder/${encodeURIComponent(folder)}`;
 
 /** "Page 42 of 78" / "Finished" / "Not started" */

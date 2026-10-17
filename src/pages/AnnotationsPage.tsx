@@ -5,7 +5,8 @@ import { getAllAnnotations } from '../lib/db';
 import { useFetch } from '../hooks/useFetch';
 import { coverColor, formatDay, plural, viewerPath } from '../lib/format';
 import { Icon } from '../components/Icon';
-import { FilterChips, Notice, PageHeader, PageShell, SearchField, SelectField, Spinner } from '../components/PageShell';
+import Menu, { type MenuEntry } from '../components/Menu';
+import { Notice, PageHeader, PageShell, SearchField, Spinner } from '../components/PageShell';
 
 type Kind = 'all' | 'highlight' | 'note';
 type Sort = 'newest' | 'oldest' | 'document';
@@ -66,9 +67,29 @@ export default function AnnotationsPage() {
 
   const reset = () => setShown(PAGE_SIZE);
 
+  const pick = <T,>(set: (v: T) => void, v: T) => () => {
+    set(v);
+    reset();
+  };
+  const viewEntries: MenuEntry[] = [
+    { heading: 'Show' },
+    { label: `All (${stats.total})`, checked: kind === 'all', keepOpen: true, onSelect: pick(setKind, 'all') },
+    { label: `Highlights (${stats.highlights})`, checked: kind === 'highlight', keepOpen: true, onSelect: pick(setKind, 'highlight') },
+    { label: `Notes (${stats.notes})`, checked: kind === 'note', keepOpen: true, onSelect: pick(setKind, 'note') },
+    { heading: 'Sort by' },
+    { label: 'Newest first', checked: sort === 'newest', keepOpen: true, onSelect: pick(setSort, 'newest') },
+    { label: 'Oldest first', checked: sort === 'oldest', keepOpen: true, onSelect: pick(setSort, 'oldest') },
+    { label: 'Document', checked: sort === 'document', keepOpen: true, onSelect: pick(setSort, 'document') },
+  ];
+
   return (
     <PageShell>
-      <PageHeader title="Annotations" subtitle="All your highlights and notes in one place" backTo="/" backLabel="Back to Home" />
+      <PageHeader
+        title="Annotations"
+        subtitle={data ? `${plural(stats.highlights, 'highlight')} · ${plural(stats.notes, 'note')} · ${plural(stats.documents, 'document')}` : undefined}
+        backTo="/"
+        backLabel="Back to Home"
+      />
 
       {error && !data ? (
         <Notice tone="error" title="Couldn’t load annotations" action={<button className="btn-primary" onClick={() => void reload()}>Try again</button>}>
@@ -80,51 +101,17 @@ export default function AnnotationsPage() {
         <Notice title="No annotations yet">Select text in a document to highlight it, or add a note. Everything you add shows up here.</Notice>
       ) : (
         <>
-          <section className="card grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {[
-              ['Total', stats.total],
-              ['Highlights', stats.highlights],
-              ['Notes', stats.notes],
-              ['Documents', stats.documents],
-            ].map(([label, n]) => (
-              <div key={label}>
-                <b className="block text-[26px]">{Number(n).toLocaleString()}</b>
-                <span className="mute">{label}</span>
-              </div>
-            ))}
-          </section>
-
           <div className="flex flex-wrap items-center gap-3">
-            <SearchField className="min-w-[240px] flex-1" value={query} onChange={(v) => { setQuery(v); reset(); }} placeholder="Search highlights and notes" />
-            <SelectField
-              className="w-full sm:w-auto sm:max-w-[260px]"
-              label="Document"
-              value={doc}
-              onChange={(v) => { setDoc(v); reset(); }}
-              options={[{ value: 'all', label: 'All documents' }, ...docOptions.map(([id, name]) => ({ value: id, label: name }))]}
-            />
-            <SelectField
-              className="w-full sm:w-auto"
-              label="Sort"
-              value={sort}
-              onChange={(v) => { setSort(v); reset(); }}
-              options={[
-                { value: 'newest', label: 'Newest first' },
-                { value: 'oldest', label: 'Oldest first' },
-                { value: 'document', label: 'By document' },
-              ]}
-            />
+            <SearchField className="min-w-[200px] flex-1" value={query} onChange={(v) => { setQuery(v); reset(); }} placeholder="Search highlights and notes" />
+            <label className="field min-w-0 max-w-[220px] flex-1 sm:flex-none">
+              <Icon name="book" className="h-[18px] w-[18px] shrink-0 text-gray-500 dark:text-gray-400" />
+              <select value={doc} onChange={(e) => { setDoc(e.target.value); reset(); }} aria-label="Filter by document">
+                <option value="all">All documents</option>
+                {docOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </label>
+            <Menu label="Filter and sort" icon="sliders" entries={viewEntries} badge={kind !== 'all' || sort !== 'newest'} buttonClassName="btn-ghost btn-sq" />
           </div>
-
-          <FilterChips
-            value={kind}
-            onChange={(k) => { setKind(k); reset(); }}
-            options={[
-              { value: 'all', label: 'All', count: stats.total },
-              { value: 'highlight', label: 'Highlights', count: stats.highlights },
-              { value: 'note', label: 'Notes', count: stats.notes },
-            ]}
-          />
 
           {filtered.length === 0 ? (
             <Notice title="No annotations match">Try a different search or filter.</Notice>
@@ -137,15 +124,13 @@ export default function AnnotationsPage() {
                     <h2 className="truncate text-[17px] font-bold">{g.docName}</h2>
                     <div className="mute">{g.folder} · {plural(g.list.length, 'annotation')}</div>
                   </div>
-                  <Link to={viewerPath(g.docId)} className="focus-ring inline-flex min-h-11 shrink-0 items-center text-[13px] font-semibold underline">
-                    Open document
-                  </Link>
+                  <Link to={viewerPath(g.docId)} className="btn-plain focus-ring" aria-label={`Open ${g.docName}`} title="Open document"><Icon name="book" /></Link>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {g.list.map((a) => {
                     const highlight = kindOf(a) === 'highlight';
                     return (
-                      <article key={a.id} className="card flex flex-col gap-2.5 p-[18px]">
+                      <article key={a.id} className="card flex flex-col gap-2 p-[18px]">
                         <div className="flex items-center gap-2 text-[13px]">
                           <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: highlight ? a.color ?? DEFAULT_COLOR : NOTE_COLOR }} />
                           <b>{highlight ? 'Highlight' : 'Note'}</b>
@@ -157,8 +142,8 @@ export default function AnnotationsPage() {
                           </p>
                         )}
                         {a.note && <p className={`m-0 leading-normal ${highlight ? 'text-sm font-semibold' : 'text-[15px] font-semibold'}`}>{a.note}</p>}
-                        <Link to={viewerPath(a.docId)} className="focus-ring mt-auto inline-flex min-h-11 items-center gap-1.5 text-[13px] font-semibold underline">
-                          Open document <Icon name="arrow" className="h-3.5 w-3.5" />
+                        <Link to={viewerPath(a.docId, a.page)} className="focus-ring mt-auto inline-flex min-h-11 items-center gap-1.5 text-[13px] font-semibold underline">
+                          Go to page {a.page} <Icon name="arrow" className="h-3.5 w-3.5" />
                         </Link>
                       </article>
                     );

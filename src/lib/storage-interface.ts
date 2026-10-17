@@ -33,6 +33,10 @@ export interface StorageBackend {
     file: Blob,
     opts?: RequestOptions & { onProgress?: (fraction: number) => void },
   ): Promise<string | null>;
+  /** Deletes the PDF plus its annotations, backups and progress. Cannot be undone. */
+  deleteDocument(id: string, opts?: RequestOptions): Promise<void>;
+  /** Deletes a folder and everything in it. Cannot be undone. */
+  deleteFolder(name: string, opts?: RequestOptions): Promise<void>;
   getStorage(opts?: RequestOptions): Promise<StorageOverview>;
   /** Every annotation across all PDFs, newest first. */
   getAllAnnotations(opts?: RequestOptions): Promise<AnnotationSummary[]>;

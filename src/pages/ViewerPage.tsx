@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { PDFViewer, type PDFViewerRef } from '@embedpdf/react-pdf-viewer';
 import type { AnnotationOp, AnnotationsFile, ViewState } from '../types';
 import { WASM_URL, VIEWER_FONTS } from '../lib/viewer-assets';
@@ -110,6 +110,10 @@ async function applyAnnotationsToViewer(
 
 export default function ViewerPage() {
   const { id } = useParams<{ id: string }>();
+  // #/viewer/<id>?page=12 opens at that page instead of the saved position (annotation and quote links use this).
+  const [searchParams] = useSearchParams();
+  const wantedPageRef = useRef(0);
+  wantedPageRef.current = Math.max(0, Math.floor(Number(searchParams.get('page')) || 0));
   const viewerRef = useRef<PDFViewerRef>(null);
   const { theme } = useTheme();
 
@@ -352,9 +356,10 @@ export default function ViewerPage() {
           lastSavedRef.current = { ...progressRef.current };
           viewRef.current = meta.view ?? null;
           lastSavedViewRef.current = JSON.stringify(viewRef.current);
-          resumeTargetRef.current = lastPage > 1 ? lastPage : null;
+          const startPage = wantedPageRef.current >= 1 ? wantedPageRef.current : lastPage;
+          resumeTargetRef.current = startPage > 1 ? startPage : null;
           setResumeTarget(resumeTargetRef.current);
-          if (lastPage > 1) setResumeState('resuming');
+          if (startPage > 1) setResumeState('resuming');
         } else {
           setProgressWarning(true); // tracking stays off for this session
         }

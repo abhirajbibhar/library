@@ -102,6 +102,24 @@ export class RemoteStorageBackend implements StorageBackend {
     });
   }
 
+  async deleteDocument(id: string, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/documents/${enc(id)}`, {
+      method: 'DELETE',
+      headers: { 'X-Confirm-Delete': encodeURIComponent(id) },
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to delete document');
+  }
+
+  async deleteFolder(name: string, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/folders/${enc(name)}`, {
+      method: 'DELETE',
+      headers: { 'X-Confirm-Delete': encodeURIComponent(name) },
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to delete folder');
+  }
+
   async getStorage(opts: RequestOptions = {}): Promise<StorageOverview> {
     const res = await fetch(`${API_BASE}/storage`, { signal: opts.signal, cache: 'no-store' });
     if (!res.ok) await fail(res, 'Failed to fetch storage');

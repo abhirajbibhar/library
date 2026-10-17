@@ -323,5 +323,7 @@ The app is one Cloudflare Worker that serves both the built frontend (`dist/`, v
 - `GET /api/storage` returns bytes used in the bucket, per folder, plus backups and annotation files.
 - `GET /api/annotations` returns every live annotation across all PDFs, newest first (up to 300 annotation files, 2000 items).
 - Uploads use the existing `PUT /api/documents/<folder>/<file>.pdf`. A new folder is created automatically by the first upload.
+- `DELETE /api/documents/<folder>/<file>.pdf` removes the PDF with its annotations, backups and progress entry. `DELETE /api/folders/<folder>` removes a whole folder the same way. Both need an `X-Confirm-Delete` header naming the target, are permanent, and a folder disappears when its last PDF is deleted.
+- `#/viewer/<id>?page=12` opens the reader at page 12 instead of the saved position (annotation and quote links use it).
 
 Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).

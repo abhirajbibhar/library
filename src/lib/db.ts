@@ -32,3 +32,5 @@ export const uploadDocument = (
 export const getStorage = (opts?: RequestOptions): Promise<StorageOverview> => storage.getStorage(opts);
 export const getAllAnnotations = (opts?: RequestOptions): Promise<AnnotationSummary[]> =>
   storage.getAllAnnotations(opts);
+export const deleteDocument = (id: string, opts?: RequestOptions): Promise<void> => storage.deleteDocument(id, opts);
+export const deleteFolder = (name: string, opts?: RequestOptions): Promise<void> => storage.deleteFolder(name, opts);

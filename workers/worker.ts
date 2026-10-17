@@ -107,8 +107,8 @@ function buildCors(request: Request, env: Env): Record<string, string> {
   void request;
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET, HEAD, PUT, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Range, If-None-Match, If-Match',
+    'Access-Control-Allow-Methods': 'GET, HEAD, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Range, If-None-Match, If-Match, X-Confirm-Delete',
     'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, ETag, Content-Length',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -216,6 +216,11 @@ export default {
         assertPdfKey(key);
         if (request.method === 'GET' || request.method === 'HEAD') return await getDocument(key, request, env, cors);
         if (request.method === 'PUT') return await saveDocument(key, request, env, cors);
+        if (request.method === 'DELETE') return await deleteDocument(key, request, env, cors);
+      }
+
+      if (path.startsWith('/api/folders/') && path.length > '/api/folders/'.length && request.method === 'DELETE') {
+        return await deleteFolder(decodeKey(path, '/api/folders/'), request, env, cors);
       }
 
       // Annotations live in Annotation/<folder>/<name>.json, addressed by the PDF's key
@@ -332,6 +337,63 @@ async function listAllAnnotations(env: Env, cors: Record<string, string>): Promi
 
   items.sort((a, b) => Date.parse(String(b.modified)) - Date.parse(String(a.modified)));
   return json({ total: items.length, items: items.slice(0, MAX_ANNOTATION_ITEMS) }, cors);
+}
+
+
+// ---------------------------------------------------------------- deleting (GUI replacement for the R2 dashboard)
+
+/** A DELETE only goes through when the caller names exactly what it wants gone (guards against stray requests). */
+function requireConfirm(request: Request, expected: string): void {
+  let got = request.headers.get('X-Confirm-Delete') ?? '';
+  try {
+    got = decodeURIComponent(got);
+  } catch {
+    /* keep raw */
+  }
+  if (got !== expected) throw new HttpError(400, 'Delete not confirmed');
+}
+
+async function deleteKeys(env: Env, keys: string[]): Promise<void> {
+  for (let i = 0; i < keys.length; i += 1000) await env.PDF_BUCKET.delete(keys.slice(i, i + 1000));
+}
+
+/** Removes the PDF, its annotations file, its backups, and its entry in the folder's metadata.json. */
+async function deleteDocument(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  requireConfirm(request, key);
+  if (!(await env.PDF_BUCKET.head(key))) throw new HttpError(404, 'PDF not found');
+
+  const versions = await listAll(env, `_versions/${key}/`);
+  const keys = [key, annotationsKey(key), ...versions.map((o) => o.key)];
+  await deleteKeys(env, keys);
+
+  const folder = folderOf(key);
+  const remaining = (await listFolder(folder, env)).filter((o) => /\.pdf$/i.test(o.key));
+  if (remaining.length === 0) {
+    // Last PDF gone: the folder disappears, so drop its metadata.json too (otherwise it would linger).
+    await env.PDF_BUCKET.delete(`${folder}/metadata.json`);
+  } else {
+    await mutateMetadata(folder, env, (m) => {
+      delete m.documents[key];
+    });
+  }
+  return json({ success: true, deleted: keys.length }, cors);
+}
+
+/** Removes every PDF in the folder together with its annotations, backups and metadata. */
+async function deleteFolder(name: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  if (!name || name.includes('/') || name.includes('\\') || name.includes('..') || isHiddenFolder(name)) {
+    throw new HttpError(400, 'Invalid folder name');
+  }
+  requireConfirm(request, name);
+
+  const objects = [
+    ...(await listAll(env, `${name}/`)),
+    ...(await listAll(env, `${ANNOTATIONS_FOLDER}/${name}/`)),
+    ...(await listAll(env, `_versions/${name}/`)),
+  ];
+  if (objects.length === 0) throw new HttpError(404, 'Folder not found');
+  await deleteKeys(env, objects.map((o) => o.key));
+  return json({ success: true, deleted: objects.length }, cors);
 }
 
 // ---------------------------------------------------------------- metadata (optimistic concurrency)
