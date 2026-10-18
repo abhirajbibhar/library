@@ -16,8 +16,11 @@ export interface PdfDocument {
   lastPage: number;
   totalPages: number; // 0 until the document has been opened once
   lastOpened: string | null; // ISO date, null = never opened
-  readingTime: number;
+  readingTime: number; // seconds actually spent reading
   view?: ViewState | null;
+  favorite: boolean;
+  tags: string[];
+  cover: number | null; // upload time (ms) of the cover image, null = none yet
 }
 
 /** Shape of GET/PUT /api/metadata/:key */
@@ -61,6 +64,7 @@ export interface StorageOverview {
   total: number; // bytes used in the whole bucket
   folders: { name: string; size: number; count: number }[];
   backups: number; // _versions/
+  trash: number; // _trash/
   annotations: number; // Annotation/
   other: number;
 }
@@ -78,4 +82,28 @@ export interface AnnotationSummary {
   color: string | null; // "#rrggbb" when the viewer saved one
   created: string;
   modified: string;
+}
+
+/** One deleted document waiting in the trash (GET /api/trash). */
+export interface TrashEntry {
+  id: string;
+  key: string;
+  name: string;
+  folder: string;
+  size: number;
+  deletedAt: string;
+  expiresAt: string;
+}
+
+/** GET /api/reading: seconds read per local day ("YYYY-MM-DD") and the optional daily goal. */
+export interface ReadingStats {
+  days: Record<string, number>;
+  goalMinutes: number; // 0 = no goal
+}
+
+/** One earlier copy of a PDF (GET /api/versions/:key). */
+export interface VersionInfo {
+  id: string;
+  size: number;
+  uploaded: string;
 }

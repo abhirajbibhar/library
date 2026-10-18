@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AnnotationSummary, PdfDocument, StorageOverview } from '../types';
-import { getAllAnnotations, getStorage } from '../lib/db';
+import type { AnnotationSummary, PdfDocument, ReadingStats, StorageOverview } from '../types';
+import { getAllAnnotations, getReading, getStorage, setReadingGoal } from '../lib/db';
 import { LOGOUT_URL } from '../config';
 import { useTheme } from '../contexts/ThemeContext';
 import { useFetch } from '../hooks/useFetch';
 import { useLibrary } from '../hooks/useLibrary';
-import { coverColor, formatDay, formatSize, isFinished, plural, progressLabel, progressPct, viewerPath } from '../lib/format';
+import { useDocActions } from '../hooks/useDocActions';
+import { coverColor, formatDay, formatDuration, formatSize, isFinished, localDay, plural, progressLabel, progressPct, readingStreak, viewerPath } from '../lib/format';
+import BookCover from '../components/BookCover';
 import { Icon, PlayIcon } from '../components/Icon';
 import Menu, { type MenuEntry } from '../components/Menu';
 import { Notice, PageHeader, PageShell, Spinner } from '../components/PageShell';
@@ -18,6 +20,8 @@ export default function HomePage() {
   const { documents, loaded, error, reload, loading } = useLibrary();
   const annotations = useFetch(() => getAllAnnotations());
   const storage = useFetch(() => getStorage());
+  const reading = useFetch(() => getReading());
+  const { menuForDoc, dialog } = useDocActions(documents, () => void reload(true));
   const { theme, toggleTheme } = useTheme();
 
   const current = useMemo(
@@ -31,6 +35,7 @@ export default function HomePage() {
   const menu: MenuEntry[] = [
     { label: 'Annotations', icon: 'pen', to: '/annotations' },
     { label: 'Add to Library', icon: 'upload', to: '/upload' },
+    { label: 'Trash', icon: 'trash', to: '/trash' },
     { heading: 'Appearance' },
     { label: theme === 'light' ? 'Dark mode' : 'Light mode', icon: theme === 'light' ? 'moon' : 'sun', onSelect: toggleTheme },
     { heading: 'Account' },
@@ -62,10 +67,11 @@ export default function HomePage() {
           <ContinueReading doc={current} empty={documents.length === 0} />
           <Stats documents={documents} annotations={annotations.data} />
           <DailyQuote items={annotations.data} />
+          <Favourites docs={documents.filter((d) => d.favorite)} menuFor={menuForDoc} />
           <div className="grid items-start gap-6 md:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-6">
               <StorageCard storage={storage.data} failed={!!storage.error} />
-              <WeekChart documents={documents} />
+              <ReadingChart stats={reading.data} onGoal={(m) => void setReadingGoal(m).then(() => reading.reload(true))} />
             </div>
             <div className="flex min-w-0 flex-col gap-6">
               <RecentlyOpened documents={documents} />
@@ -74,6 +80,7 @@ export default function HomePage() {
           </div>
         </>
       )}
+      {dialog}
     </PageShell>
   );
 }
@@ -269,38 +276,68 @@ function StorageCard({ storage, failed }: { storage: StorageOverview | null; fai
   );
 }
 
-function WeekChart({ documents }: { documents: PdfDocument[] }) {
-  const days = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    return Array.from({ length: 7 }, (_, i) => {
-      const t = start - (6 - i) * DAY;
-      const count = documents.filter((d) => {
-        if (!d.lastOpened) return false;
-        const o = new Date(d.lastOpened);
-        return new Date(o.getFullYear(), o.getMonth(), o.getDate()).getTime() === t;
-      }).length;
-      return { label: new Date(t).toLocaleDateString('en-US', { weekday: 'short' }), count };
-    });
-  }, [documents]);
-  const max = Math.max(1, ...days.map((d) => d.count));
-  const summary = days.map((d) => `${d.label} ${d.count}`).join(', ');
+const GOALS = [0, 10, 20, 30, 60];
+
+function ReadingChart({ stats, onGoal }: { stats: ReadingStats | null; onGoal: (minutes: number) => void }) {
+  const days = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return { label: d.toLocaleDateString('en-US', { weekday: 'short' }), seconds: stats?.days[localDay(d)] ?? 0 };
+      }),
+    [stats],
+  );
+  const goal = stats?.goalMinutes ?? 0;
+  const total = days.reduce((n, d) => n + d.seconds, 0);
+  const today = days[6].seconds;
+  const streak = stats ? readingStreak(stats.days) : 0;
+  const max = Math.max(60, goal * 60, ...days.map((d) => d.seconds));
+  const summary = days.map((d) => `${d.label} ${formatDuration(d.seconds)}`).join(', ');
+
   return (
     <div className="card">
-      <h2 className="mb-1 text-base font-bold">Opened this week</h2>
-      <div className="mute mb-3.5">Documents you last opened on each day</div>
-      <div role="img" aria-label={`Documents opened per day: ${summary}`} className="flex h-[140px] items-end gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-bold">Reading time</h2>
+        <Menu
+          label="Daily goal"
+          icon="sliders"
+          entries={[
+            { heading: 'Daily goal' },
+            ...GOALS.map((g): MenuEntry => ({ label: g ? `${g} minutes` : 'No goal', checked: goal === g, onSelect: () => onGoal(g) })),
+          ]}
+        />
+      </div>
+      <div className="mute mb-3.5">
+        {formatDuration(total)} this week{streak > 0 ? ` · ${plural(streak, 'day')} in a row` : ''}
+        {goal > 0 ? ` · today ${formatDuration(today)} of ${goal}m` : ''}
+      </div>
+      <div role="img" aria-label={`Reading time per day: ${summary}`} className="flex h-[140px] items-end gap-3">
         {days.map((d, i) => (
           <div key={i} className="flex flex-1 flex-col items-center justify-end text-center">
-            {d.count > 0 && <span className="mute mb-1">{d.count}</span>}
+            {d.seconds >= 60 && <span className="mute mb-1">{formatDuration(d.seconds)}</span>}
             <div
-              className={`w-full rounded-t-lg ${d.count ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-gray-200 dark:bg-gray-700'}`}
-              style={{ height: d.count ? `${Math.max(12, (d.count / max) * 90)}px` : '4px' }}
+              className={`w-full rounded-t-lg ${d.seconds >= 60 ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-gray-200 dark:bg-gray-700'}`}
+              style={{ height: d.seconds >= 60 ? `${Math.max(10, (d.seconds / max) * 90)}px` : '4px' }}
             />
             <div className="mute mt-1.5">{d.label}</div>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function Favourites({ docs, menuFor }: { docs: PdfDocument[]; menuFor: (d: PdfDocument) => MenuEntry[] }) {
+  if (docs.length === 0) return null;
+  return (
+    <section aria-label="Favourites">
+      <h2 className="mb-2 flex items-center gap-2 text-base font-bold"><Icon name="star" className="h-[18px] w-[18px]" />Favourites</h2>
+      <div className="-mx-1 flex snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-2 pt-1">
+        {docs.map((d) => (
+          <BookCover key={d.id} doc={d} menu={menuFor(d)} className="w-[132px] shrink-0 snap-start md:w-[150px]" />
+        ))}
+      </div>
+    </section>
   );
 }

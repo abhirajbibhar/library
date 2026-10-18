@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLibrary } from '../hooks/useLibrary';
-import { useDeleteActions } from '../hooks/useDeleteActions';
-import { countByFilter, filterDocs, sortDocs, type DocFilter, type DocSort } from '../lib/docs';
+import { useDocActions } from '../hooks/useDocActions';
+import { allTags, countByFilter, filterDocs, sortDocs, type DocFilter, type DocSort } from '../lib/docs';
 import { coverColor, formatDay, formatSize, plural, progressLabel, viewerPath } from '../lib/format';
 import BookCover from '../components/BookCover';
 import { Icon } from '../components/Icon';
@@ -20,18 +20,20 @@ export default function FolderPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<DocFilter>('all');
   const [sort, setSort] = useState<DocSort>('recent');
+  const [tag, setTag] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [shown, setShown] = useState(PAGE_SIZE);
 
   const docs = useMemo(() => documents.filter((d) => d.folder === name), [documents, name]);
   const title = docs[0]?.folderTitle || name;
   const counts = useMemo(() => countByFilter(docs), [docs]);
-  const visible = useMemo(() => sortDocs(filterDocs(docs, query, filter), sort), [docs, query, filter, sort]);
+  const visible = useMemo(() => sortDocs(filterDocs(docs, query, filter, tag), sort), [docs, query, filter, tag, sort]);
+  const tags = useMemo(() => allTags(docs), [docs]);
   const reset = () => setShown(PAGE_SIZE);
 
-  const { askDeleteDoc, askDeleteFolder, dialog } = useDeleteActions((t) => {
-    // Deleting the folder, or its last document, leaves nothing to show here.
-    if (t.kind === 'folder' || docs.length <= 1) navigate('/library', { replace: true });
+  const { menuForDoc, menuForFolder, dialog } = useDocActions(documents, (c) => {
+    if (c.kind === 'folder-removed' || (c.kind === 'doc-removed' && docs.length <= 1)) navigate('/library', { replace: true });
+    else if (c.kind === 'folder-renamed') navigate(`/folder/${encodeURIComponent(c.to)}`, { replace: true });
     else void reload(true);
   });
 
@@ -45,9 +47,7 @@ export default function FolderPage() {
         actions={
           <>
             <Link to={`/upload?folder=${encodeURIComponent(name)}`} className="btn-plain focus-ring" aria-label={`Add to ${title}`} title="Add files"><Icon name="plus" /></Link>
-            {docs.length > 0 && (
-              <Menu label="Folder options" entries={[{ label: 'Delete folder', icon: 'trash', danger: true, onSelect: () => askDeleteFolder(name, title, docs.length) }]} />
-            )}
+            {docs.length > 0 && <Menu label="Folder options" entries={menuForFolder(name, title, docs)} />}
           </>
         }
       />
@@ -66,7 +66,7 @@ export default function FolderPage() {
         <>
           <div className="flex items-center gap-3">
             <SearchField className="min-w-0 flex-1" value={query} onChange={(v) => { setQuery(v); reset(); }} placeholder={`Search in ${title}`} />
-            <ViewMenu filter={filter} onFilter={(f) => { setFilter(f); reset(); }} sort={sort} onSort={(s) => { setSort(s); reset(); }} counts={counts} />
+            <ViewMenu filter={filter} onFilter={(f) => { setFilter(f); reset(); }} sort={sort} onSort={(s) => { setSort(s); reset(); }} counts={counts} tags={tags} tag={tag} onTag={(t) => { setTag(t); reset(); }} />
             <button
               type="button"
               className="btn-ghost btn-sq focus-ring"
@@ -82,7 +82,7 @@ export default function FolderPage() {
             <Notice title="No documents match">Try a different search or filter.</Notice>
           ) : view === 'grid' ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-              {visible.slice(0, shown).map((d) => <BookCover key={d.id} doc={d} onDelete={askDeleteDoc} />)}
+              {visible.slice(0, shown).map((d) => <BookCover key={d.id} doc={d} menu={menuForDoc(d)} />)}
             </div>
           ) : (
             <ul className="card p-0">
@@ -92,16 +92,10 @@ export default function FolderPage() {
                     <span className="h-12 w-9 shrink-0 rounded-md" style={{ backgroundColor: coverColor(d.name) }} aria-hidden="true" />
                     <div className="min-w-0">
                       <div className="truncate font-semibold">{d.name}</div>
-                      <div className="mute truncate">{progressLabel(d)} · {formatSize(d.size)}{d.lastOpened ? ` · ${formatDay(d.lastOpened)}` : ''}</div>
+                      <div className="mute truncate">{progressLabel(d)} · {formatSize(d.size)}{d.lastOpened ? ` · ${formatDay(d.lastOpened)}` : ''}{d.tags.length ? ` · ${d.tags.join(', ')}` : ''}</div>
                     </div>
                   </Link>
-                  <Menu
-                    label={`Options for ${d.name}`}
-                    entries={[
-                      { label: 'Open', icon: 'book', to: viewerPath(d.id) },
-                      { label: 'Delete', icon: 'trash', danger: true, onSelect: () => askDeleteDoc(d) },
-                    ]}
-                  />
+                  <Menu label={`Options for ${d.name}`} entries={menuForDoc(d)} />
                 </li>
               ))}
             </ul>

@@ -315,6 +315,7 @@ The app is one Cloudflare Worker that serves both the built frontend (`dist/`, v
 | `#/library` | Explore Library: every folder is a shelf of books (`?q=` pre-fills the search) |
 | `#/folder/<name>` | One folder: summary, search, sort, filters, grid or list |
 | `#/annotations` | All highlights and notes across the library, grouped by document |
+| `#/trash` | Deleted documents, restorable for 30 days |
 | `#/upload` | Add PDFs to an existing or new folder (progress, duplicate check, 95 MB limit) |
 | `#/viewer/<id>` | The PDF reader |
 
@@ -323,7 +324,17 @@ The app is one Cloudflare Worker that serves both the built frontend (`dist/`, v
 - `GET /api/storage` returns bytes used in the bucket, per folder, plus backups and annotation files.
 - `GET /api/annotations` returns every live annotation across all PDFs, newest first (up to 300 annotation files, 2000 items).
 - Uploads use the existing `PUT /api/documents/<folder>/<file>.pdf`. A new folder is created automatically by the first upload.
-- `DELETE /api/documents/<folder>/<file>.pdf` removes the PDF with its annotations, backups and progress entry. `DELETE /api/folders/<folder>` removes a whole folder the same way. Both need an `X-Confirm-Delete` header naming the target, are permanent, and a folder disappears when its last PDF is deleted.
+- `DELETE /api/documents/<folder>/<file>.pdf` moves a document (PDF, annotations, cover, backups) to `_trash/` for 30 days. It needs an `X-Confirm-Delete` header naming the key. A folder is deleted by trashing each of its documents.
+- `GET /api/trash`, `POST /api/trash/<id>/restore`, `DELETE /api/trash/<id>` and `DELETE /api/trash` (header `X-Confirm-Delete: empty-trash`) manage the trash. Entries older than 30 days are purged when the trash is listed.
+- `POST /api/move` with `{ "from": "A/x.pdf", "to": "B/y.pdf" }` renames and/or moves a document; annotations, progress, cover, backups, favourites and reading time follow it.
+- `PATCH /api/state/<key>` sets `{ favorite, tags }` (stored in `_library/state.json`).
+- `POST /api/reading` logs reading seconds, `GET /api/reading` returns per-day totals, `PUT /api/reading/goal` sets the daily goal (stored in `_library/reading.json`).
+- `GET|PUT /api/covers/<key>` read and write the cover image (`_covers/<key>.jpg`). Covers are drawn in the browser with pdf.js, loaded on demand from jsDelivr.
+- `GET /api/versions/<key>` lists earlier copies of a PDF and `POST /api/versions/<key>/restore` brings one back.
 - `#/viewer/<id>?page=12` opens the reader at page 12 instead of the saved position (annotation and quote links use it).
 
 Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).
+
+### Installable app
+
+`public/manifest.webmanifest`, `public/sw.js` and `public/icons/` make the site installable ("Add to Home Screen" / "Install"). The service worker only caches the app's own files; PDFs, notes and progress always come from the network.

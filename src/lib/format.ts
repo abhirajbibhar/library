@@ -53,3 +53,27 @@ export function coverColor(name: string): string {
 }
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+/** The reader's local calendar day, "YYYY-MM-DD" (what the reading log is keyed by). */
+export const localDay = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** 3725 -> "1h 2m", 540 -> "9m", 20 -> "<1m", 0 -> "0m" */
+export function formatDuration(seconds: number): string {
+  if (seconds <= 0) return '0m';
+  if (seconds < 60) return '<1m';
+  const m = Math.round(seconds / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+
+/** Consecutive days (ending today, or yesterday if today is still empty) with at least a minute of reading. */
+export function readingStreak(days: Record<string, number>): number {
+  const d = new Date();
+  if ((days[localDay(d)] ?? 0) < 60) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while ((days[localDay(d)] ?? 0) >= 60) {
+    n += 1;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}

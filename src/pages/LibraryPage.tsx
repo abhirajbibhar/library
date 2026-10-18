@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLibrary } from '../hooks/useLibrary';
-import { useDeleteActions } from '../hooks/useDeleteActions';
-import { countByFilter, filterDocs, groupByFolder, sortDocs, type DocFilter, type DocSort } from '../lib/docs';
+import { useDocActions } from '../hooks/useDocActions';
+import { allTags, countByFilter, filterDocs, groupByFolder, sortDocs, type DocFilter, type DocSort } from '../lib/docs';
 import { folderPath, plural } from '../lib/format';
 import BookCover from '../components/BookCover';
 import { Icon } from '../components/Icon';
@@ -18,15 +18,17 @@ export default function LibraryPage() {
   const focusSearch = params.has('search');
   const [filter, setFilter] = useState<DocFilter>('all');
   const [sort, setSort] = useState<DocSort>('recent');
-  const { askDeleteDoc, askDeleteFolder, dialog } = useDeleteActions(() => void reload(true));
+  const [tag, setTag] = useState('');
+  const { menuForDoc, menuForFolder, dialog } = useDocActions(documents, () => void reload(true));
 
   const setQuery = (q: string) => setParams(q ? { q } : focusSearch ? { search: '1' } : {}, { replace: true });
 
   const counts = useMemo(() => countByFilter(documents), [documents]);
   const shelves = useMemo(
-    () => groupByFolder(filterDocs(documents, query, filter)).map((s) => ({ ...s, docs: sortDocs(s.docs, sort) })),
-    [documents, query, filter, sort],
+    () => groupByFolder(filterDocs(documents, query, filter, tag)).map((s) => ({ ...s, docs: sortDocs(s.docs, sort) })),
+    [documents, query, filter, tag, sort],
   );
+  const tags = useMemo(() => allTags(documents), [documents]);
   const folderCount = useMemo(() => new Set(documents.map((d) => d.folder)).size, [documents]);
 
   return (
@@ -41,7 +43,7 @@ export default function LibraryPage() {
 
       <div className="flex items-center gap-3">
         <SearchField className="min-w-0 flex-1" value={query} onChange={setQuery} placeholder="Search all shelves" autoFocus={focusSearch} />
-        <ViewMenu filter={filter} onFilter={setFilter} sort={sort} onSort={setSort} counts={counts} />
+        <ViewMenu filter={filter} onFilter={setFilter} sort={sort} onSort={setSort} counts={counts} tags={tags} tag={tag} onTag={setTag} />
       </div>
 
       {error && !loaded ? (
@@ -66,18 +68,12 @@ export default function LibraryPage() {
               </Link>
               <div className="ml-auto flex">
                 <Link to={folderPath(shelf.folder)} className="btn-plain focus-ring" aria-label={`Open ${shelf.title}`} title="Open folder"><Icon name="arrow" /></Link>
-                <Menu
-                  label={`Options for ${shelf.title}`}
-                  entries={[
-                    { label: 'Add files', icon: 'upload', to: `/upload?folder=${encodeURIComponent(shelf.folder)}` },
-                    { label: 'Delete folder', icon: 'trash', danger: true, onSelect: () => askDeleteFolder(shelf.folder, shelf.title, shelf.docs.length) },
-                  ]}
-                />
+                <Menu label={`Options for ${shelf.title}`} entries={menuForFolder(shelf.folder, shelf.title, documents.filter((d) => d.folder === shelf.folder))} />
               </div>
             </div>
             <div className="-mx-1 flex snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-3 pt-1">
               {shelf.docs.slice(0, 12).map((d) => (
-                <BookCover key={d.id} doc={d} onDelete={askDeleteDoc} className="w-[150px] shrink-0 snap-start md:w-[180px]" />
+                <BookCover key={d.id} doc={d} menu={menuForDoc(d)} className="w-[150px] shrink-0 snap-start md:w-[180px]" />
               ))}
             </div>
           </section>

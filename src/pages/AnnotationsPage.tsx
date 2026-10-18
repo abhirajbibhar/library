@@ -4,6 +4,7 @@ import type { AnnotationSummary } from '../types';
 import { getAllAnnotations } from '../lib/db';
 import { useFetch } from '../hooks/useFetch';
 import { coverColor, formatDay, plural, viewerPath } from '../lib/format';
+import { annotationsToCsv, annotationsToMarkdown, downloadText } from '../lib/export';
 import { Icon } from '../components/Icon';
 import Menu, { type MenuEntry } from '../components/Menu';
 import { Notice, PageHeader, PageShell, SearchField, Spinner } from '../components/PageShell';
@@ -111,6 +112,16 @@ export default function AnnotationsPage() {
               </select>
             </label>
             <Menu label="Filter and sort" icon="sliders" entries={viewEntries} badge={kind !== 'all' || sort !== 'newest'} buttonClassName="btn-ghost btn-sq" />
+            <Menu
+              label="Export"
+              icon="download"
+              buttonClassName="btn-ghost btn-sq"
+              entries={[
+                { heading: `Export ${plural(filtered.length, 'annotation')}` },
+                { label: 'Markdown (.md)', icon: 'file', onSelect: () => downloadText('annotations.md', annotationsToMarkdown(filtered), 'text/markdown') },
+                { label: 'Spreadsheet (.csv)', icon: 'file', onSelect: () => downloadText('annotations.csv', annotationsToCsv(filtered), 'text/csv') },
+              ]}
+            />
           </div>
 
           {filtered.length === 0 ? (

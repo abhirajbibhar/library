@@ -5,6 +5,9 @@
  *   <any-folder>/  *.pdf, metadata.json (optional – reading progress, created automatically)
  *   _versions/<key>/<timestamp>.pdf     (rolling backups made before every overwrite)
  *   Annotation/<folder>/<name>.json     (one annotations file per PDF, created automatically on first save)
+ *   _trash/<id>/                         (deleted documents, restorable for 30 days)
+ *   _covers/<key>.jpg                    (cover image rendered from page 1)
+ *   _library/state.json, reading.json    (favourites + tags, reading-time log)
  *
  * Every top-level folder that contains PDFs becomes a section in the library, headed by the folder name.
  * To add a new section just create a folder in the bucket and upload PDFs. No code change, no redeploy.
@@ -107,7 +110,7 @@ function buildCors(request: Request, env: Env): Record<string, string> {
   void request;
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET, HEAD, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, HEAD, PUT, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Range, If-None-Match, If-Match, X-Confirm-Delete',
     'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, ETag, Content-Length',
     'Access-Control-Max-Age': '86400',
@@ -216,11 +219,62 @@ export default {
         assertPdfKey(key);
         if (request.method === 'GET' || request.method === 'HEAD') return await getDocument(key, request, env, cors);
         if (request.method === 'PUT') return await saveDocument(key, request, env, cors);
-        if (request.method === 'DELETE') return await deleteDocument(key, request, env, cors);
+        if (request.method === 'DELETE') return await trashDocument(key, request, env, cors);
       }
 
-      if (path.startsWith('/api/folders/') && path.length > '/api/folders/'.length && request.method === 'DELETE') {
-        return await deleteFolder(decodeKey(path, '/api/folders/'), request, env, cors);
+      if (path === '/api/move' && request.method === 'POST') return await moveDocument(request, env, cors);
+
+      if (path.startsWith('/api/state/') && request.method === 'PATCH') {
+        const key = decodeKey(path, '/api/state/');
+        assertPdfKey(key);
+        return await patchDocState(key, request, env, cors);
+      }
+
+      if (path === '/api/reading') {
+        if (request.method === 'GET') return await getReading(env, cors);
+        if (request.method === 'POST') return await logReading(request, env, cors);
+      }
+      if (path === '/api/reading/goal' && request.method === 'PUT') return await setReadingGoal(request, env, cors);
+
+      if (path.startsWith('/api/covers/') && path.length > '/api/covers/'.length) {
+        const key = decodeKey(path, '/api/covers/');
+        assertPdfKey(key);
+        if (request.method === 'GET') return await getCover(key, env, cors);
+        if (request.method === 'PUT') return await putCover(key, request, env, cors);
+      }
+
+      if (path.startsWith('/api/versions/') && path.length > '/api/versions/'.length) {
+        if (path.endsWith('/restore') && request.method === 'POST') {
+          const key = decodeKey(path.slice(0, -'/restore'.length), '/api/versions/');
+          assertPdfKey(key);
+          return await restoreVersion(key, request, env, cors);
+        }
+        if (request.method === 'GET') {
+          const key = decodeKey(path, '/api/versions/');
+          assertPdfKey(key);
+          return await listVersions(key, env, cors);
+        }
+      }
+
+      if (path === '/api/trash') {
+        if (request.method === 'GET') return await listTrash(env, cors);
+        if (request.method === 'DELETE') {
+          requireConfirm(request, 'empty-trash');
+          const keys = (await listAll(env, `${TRASH_FOLDER}/`)).map((o) => o.key);
+          await deleteKeys(env, keys);
+          return json({ success: true, deleted: keys.length }, cors);
+        }
+      }
+      if (path.startsWith('/api/trash/') && path.length > '/api/trash/'.length) {
+        if (path.endsWith('/restore') && request.method === 'POST') {
+          return await restoreFromTrash(decodeKey(path.slice(0, -'/restore'.length), '/api/trash/'), env, cors);
+        }
+        if (request.method === 'DELETE') {
+          const id = decodeKey(path, '/api/trash/');
+          if (!validTrashId(id)) throw new HttpError(400, 'Invalid trash id');
+          requireConfirm(request, id);
+          return json({ success: true, deleted: await purgeTrashItem(id, env) }, cors);
+        }
       }
 
       // Annotations live in Annotation/<folder>/<name>.json, addressed by the PDF's key
@@ -260,6 +314,7 @@ async function getStorage(env: Env, cors: Record<string, string>): Promise<Respo
   const folders = new Map<string, { size: number; count: number }>();
   let total = 0;
   let backups = 0;
+  let trash = 0;
   let annotations = 0;
   let other = 0;
 
@@ -268,6 +323,7 @@ async function getStorage(env: Env, cors: Record<string, string>): Promise<Respo
     const top = folderOf(o.key);
     if (!o.key.includes('/')) other += o.size;
     else if (top === '_versions') backups += o.size;
+    else if (top === TRASH_FOLDER) trash += o.size;
     else if (top.toLowerCase() === ANNOTATIONS_FOLDER.toLowerCase()) annotations += o.size;
     else if (isHiddenFolder(top)) other += o.size;
     else {
@@ -283,6 +339,7 @@ async function getStorage(env: Env, cors: Record<string, string>): Promise<Respo
       total,
       folders: [...folders.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.size - a.size),
       backups,
+      trash,
       annotations,
       other,
     },
@@ -340,7 +397,46 @@ async function listAllAnnotations(env: Env, cors: Record<string, string>): Promi
 }
 
 
-// ---------------------------------------------------------------- deleting (GUI replacement for the R2 dashboard)
+// ---------------------------------------------------------------- library extras (trash, move, tags, reading, covers, versions)
+
+const TRASH_FOLDER = '_trash';
+const COVERS_FOLDER = '_covers';
+const LIBRARY_FOLDER = '_library';
+const STATE_KEY = `${LIBRARY_FOLDER}/state.json`;
+const READING_KEY = `${LIBRARY_FOLDER}/reading.json`;
+const TRASH_DAYS = 30;
+const MAX_COVER_BYTES = 400 * 1024;
+const MAX_TAGS = 12;
+
+interface DocState {
+  favorite?: boolean;
+  tags?: string[];
+}
+interface StateFile {
+  version: 1;
+  docs: Record<string, DocState>;
+}
+interface ReadingFile {
+  version: 1;
+  days: Record<string, number>; // "YYYY-MM-DD" (the reader's local day) -> seconds
+  docs: Record<string, number>; // pdf key -> seconds
+  goalMinutes?: number;
+}
+interface TrashItem {
+  id: string;
+  key: string;
+  name: string;
+  folder: string;
+  size: number;
+  deletedAt: string;
+  progress: MetadataEntry | null;
+  state: DocState | null;
+  objects: string[]; // original keys of everything that was moved (PDF, annotations, cover, backups)
+}
+
+const emptyState = (): StateFile => ({ version: 1, docs: {} });
+const emptyReading = (): ReadingFile => ({ version: 1, days: {}, docs: {} });
+const coverKey = (key: string) => `${COVERS_FOLDER}/${key}.jpg`;
 
 /** A DELETE only goes through when the caller names exactly what it wants gone (guards against stray requests). */
 function requireConfirm(request: Request, expected: string): void {
@@ -357,43 +453,364 @@ async function deleteKeys(env: Env, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += 1000) await env.PDF_BUCKET.delete(keys.slice(i, i + 1000));
 }
 
-/** Removes the PDF, its annotations file, its backups, and its entry in the folder's metadata.json. */
-async function deleteDocument(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
-  requireConfirm(request, key);
-  if (!(await env.PDF_BUCKET.head(key))) throw new HttpError(404, 'PDF not found');
-
-  const versions = await listAll(env, `_versions/${key}/`);
-  const keys = [key, annotationsKey(key), ...versions.map((o) => o.key)];
-  await deleteKeys(env, keys);
-
-  const folder = folderOf(key);
-  const remaining = (await listFolder(folder, env)).filter((o) => /\.pdf$/i.test(o.key));
-  if (remaining.length === 0) {
-    // Last PDF gone: the folder disappears, so drop its metadata.json too (otherwise it would linger).
-    await env.PDF_BUCKET.delete(`${folder}/metadata.json`);
-  } else {
-    await mutateMetadata(folder, env, (m) => {
-      delete m.documents[key];
-    });
-  }
-  return json({ success: true, deleted: keys.length }, cors);
+/** R2 has no rename: copy then delete. Streams the body, so large PDFs are never buffered. */
+async function moveObject(env: Env, from: string, to: string): Promise<boolean> {
+  const obj = await env.PDF_BUCKET.get(from);
+  if (!obj) return false;
+  await env.PDF_BUCKET.put(to, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: obj.customMetadata });
+  await env.PDF_BUCKET.delete(from);
+  return true;
 }
 
-/** Removes every PDF in the folder together with its annotations, backups and metadata. */
-async function deleteFolder(name: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
-  if (!name || name.includes('/') || name.includes('\\') || name.includes('..') || isHiddenFolder(name)) {
-    throw new HttpError(400, 'Invalid folder name');
+/** Small JSON files in _library/ with optimistic concurrency, like metadata.json. */
+async function readJsonFile<T extends object>(
+  key: string,
+  env: Env,
+  empty: () => T,
+): Promise<{ data: T; etag: string | null }> {
+  const obj = await env.PDF_BUCKET.get(key);
+  if (!obj) return { data: empty(), etag: null };
+  try {
+    const parsed = JSON.parse(await obj.text());
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('bad shape');
+    return { data: { ...empty(), ...parsed } as T, etag: obj.etag };
+  } catch {
+    throw new HttpError(500, `${key} is corrupt; refusing to overwrite`);
   }
-  requireConfirm(request, name);
+}
 
-  const objects = [
-    ...(await listAll(env, `${name}/`)),
-    ...(await listAll(env, `${ANNOTATIONS_FOLDER}/${name}/`)),
-    ...(await listAll(env, `_versions/${name}/`)),
-  ];
-  if (objects.length === 0) throw new HttpError(404, 'Folder not found');
-  await deleteKeys(env, objects.map((o) => o.key));
-  return json({ success: true, deleted: objects.length }, cors);
+async function mutateJsonFile<T extends object>(key: string, env: Env, empty: () => T, mutate: (d: T) => void): Promise<T> {
+  for (let attempt = 0; attempt < MAX_METADATA_RETRIES; attempt++) {
+    const { data, etag } = await readJsonFile(key, env, empty);
+    mutate(data);
+    const result = await env.PDF_BUCKET.put(key, JSON.stringify(data), {
+      httpMetadata: { contentType: 'application/json' },
+      onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: '*' },
+    });
+    if (result) return data;
+  }
+  throw new HttpError(409, 'Busy, please retry');
+}
+
+// ---- favourites and tags
+
+function sanitizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const tag = raw.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);
+    const k = tag.toLowerCase();
+    if (!tag || seen.has(k)) continue;
+    seen.add(k);
+    out.push(tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+async function patchDocState(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { favorite?: unknown; tags?: unknown } | null;
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
+  if (!(await env.PDF_BUCKET.head(key))) throw new HttpError(404, 'PDF not found');
+
+  let result: DocState = {};
+  await mutateJsonFile(STATE_KEY, env, emptyState, (st) => {
+    const cur: DocState = { ...(st.docs[key] ?? {}) };
+    if (typeof body.favorite === 'boolean') cur.favorite = body.favorite;
+    if (body.tags !== undefined) cur.tags = sanitizeTags(body.tags);
+    const clean: DocState = {};
+    if (cur.favorite) clean.favorite = true;
+    if (cur.tags && cur.tags.length) clean.tags = cur.tags;
+    if (Object.keys(clean).length) st.docs[key] = clean;
+    else delete st.docs[key];
+    result = clean;
+  });
+  return json({ success: true, favorite: !!result.favorite, tags: result.tags ?? [] }, cors);
+}
+
+// ---- reading time
+
+async function logReading(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { key?: unknown; seconds?: unknown; day?: unknown } | null;
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
+  const seconds = toInt(body.seconds, 0, 0, 300);
+  const day = typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) ? body.day : null;
+  if (!seconds || !day) throw new HttpError(400, 'Invalid reading entry');
+  const t = Date.parse(`${day}T12:00:00Z`);
+  if (!Number.isFinite(t) || Math.abs(Date.now() - t) > 3 * 86_400_000) throw new HttpError(400, 'Invalid day');
+  const key = typeof body.key === 'string' ? body.key : null;
+  if (key) assertPdfKey(key);
+
+  await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
+    r.days[day] = (r.days[day] ?? 0) + seconds;
+    if (key) r.docs[key] = (r.docs[key] ?? 0) + seconds;
+    const cutoff = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
+    for (const d of Object.keys(r.days)) if (d < cutoff) delete r.days[d];
+  });
+  return json({ success: true }, cors);
+}
+
+async function getReading(env: Env, cors: Record<string, string>): Promise<Response> {
+  const { data } = await readJsonFile(READING_KEY, env, emptyReading);
+  return json({ days: data.days, goalMinutes: data.goalMinutes ?? 0 }, cors);
+}
+
+async function setReadingGoal(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { goalMinutes?: unknown } | null;
+  const goal = toInt(body?.goalMinutes, 0, 0, 600);
+  await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
+    r.goalMinutes = goal;
+  });
+  return json({ success: true, goalMinutes: goal }, cors);
+}
+
+// ---- covers
+
+function sniffImage(b: Uint8Array): string | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  return null;
+}
+
+async function putCover(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = await request.arrayBuffer();
+  if (body.byteLength === 0 || body.byteLength > MAX_COVER_BYTES) throw new HttpError(413, 'Cover image is too large');
+  const type = sniffImage(new Uint8Array(body.slice(0, 12)));
+  if (!type) throw new HttpError(400, 'Cover must be a JPEG, PNG or WebP image');
+  if (!(await env.PDF_BUCKET.head(key))) throw new HttpError(404, 'PDF not found');
+  await env.PDF_BUCKET.put(coverKey(key), body, { httpMetadata: { contentType: type } });
+  return json({ success: true }, cors);
+}
+
+async function getCover(key: string, env: Env, cors: Record<string, string>): Promise<Response> {
+  const obj = await env.PDF_BUCKET.get(coverKey(key));
+  if (!obj) return json({ error: 'No cover' }, cors, 404);
+  const headers = new Headers(cors);
+  obj.writeHttpMetadata(headers);
+  // The URL carries ?v=<upload time>, so a new cover is a new URL and this can be cached hard (private: it is behind login).
+  headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+  return new Response(obj.body, { headers });
+}
+
+// ---- trash
+
+/** Everything that belongs to one document (original keys): PDF, annotations, cover, backups. */
+async function documentObjectKeys(key: string, env: Env): Promise<string[]> {
+  const keys = [key];
+  for (const k of [annotationsKey(key), coverKey(key)]) if (await env.PDF_BUCKET.head(k)) keys.push(k);
+  keys.push(...(await listAll(env, `_versions/${key}/`)).map((o) => o.key));
+  return keys;
+}
+
+/** After a document left its folder: drop its progress / state entries (and metadata.json if the folder is now empty). */
+async function forgetDocument(key: string, env: Env): Promise<void> {
+  const folder = folderOf(key);
+  const remaining = (await listFolder(folder, env)).filter((o) => /\.pdf$/i.test(o.key));
+  if (remaining.length === 0) await env.PDF_BUCKET.delete(`${folder}/metadata.json`);
+  else await mutateMetadata(folder, env, (m) => { delete m.documents[key]; });
+  await mutateJsonFile(STATE_KEY, env, emptyState, (st) => { delete st.docs[key]; }).catch((e) => console.error('state cleanup failed', e));
+}
+
+const validTrashId = (id: string) => /^[a-z0-9]{6,40}$/i.test(id);
+
+/** "Delete" in the app: moves the document (with its annotations, cover and backups) to the trash for 30 days. */
+async function trashDocument(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  requireConfirm(request, key);
+  const head = await env.PDF_BUCKET.head(key);
+  if (!head) throw new HttpError(404, 'PDF not found');
+
+  const folder = folderOf(key);
+  const id = `${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, '').slice(0, 6)}`;
+  const base = `${TRASH_FOLDER}/${id}`;
+  const keys = await documentObjectKeys(key, env);
+  const [meta, st] = await Promise.all([
+    readMetadata(folder, env).catch(() => ({ data: emptyMetadata(), etag: null })),
+    readJsonFile(STATE_KEY, env, emptyState).catch(() => ({ data: emptyState(), etag: null })),
+  ]);
+  const item: TrashItem = {
+    id,
+    key,
+    name: key.split('/').pop()!.replace(/\.pdf$/i, ''),
+    folder,
+    size: head.size,
+    deletedAt: new Date().toISOString(),
+    progress: meta.data.documents[key] ?? null,
+    state: st.data.docs[key] ?? null,
+    objects: keys,
+  };
+  // Write the manifest first: if anything below fails half-way, the files can still be found and restored.
+  await env.PDF_BUCKET.put(`${base}/item.json`, JSON.stringify(item), { httpMetadata: { contentType: 'application/json' } });
+  for (const k of keys) await moveObject(env, k, `${base}/files/${k}`);
+  await forgetDocument(key, env);
+  return json({ success: true, id }, cors);
+}
+
+async function purgeExpiredTrash(items: TrashItem[], env: Env): Promise<TrashItem[]> {
+  const cutoff = Date.now() - TRASH_DAYS * 86_400_000;
+  const keep: TrashItem[] = [];
+  for (const it of items) {
+    if (Date.parse(it.deletedAt) < cutoff) await purgeTrashItem(it.id, env);
+    else keep.push(it);
+  }
+  return keep;
+}
+
+async function purgeTrashItem(id: string, env: Env): Promise<number> {
+  const keys = (await listAll(env, `${TRASH_FOLDER}/${id}/`)).map((o) => o.key);
+  await deleteKeys(env, keys);
+  return keys.length;
+}
+
+async function listTrash(env: Env, cors: Record<string, string>): Promise<Response> {
+  const manifests = (await listAll(env, `${TRASH_FOLDER}/`)).filter((o) => o.key.endsWith('/item.json')).slice(0, 500);
+  const loaded = await Promise.all(
+    manifests.map(async (o) => {
+      try {
+        const obj = await env.PDF_BUCKET.get(o.key);
+        return obj ? (JSON.parse(await obj.text()) as TrashItem) : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const items = await purgeExpiredTrash(loaded.filter((x): x is TrashItem => !!x && validTrashId(x.id)), env);
+  items.sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
+  return json(
+    items.map((it) => ({
+      id: it.id,
+      key: it.key,
+      name: it.name,
+      folder: it.folder,
+      size: it.size,
+      deletedAt: it.deletedAt,
+      expiresAt: new Date(Date.parse(it.deletedAt) + TRASH_DAYS * 86_400_000).toISOString(),
+    })),
+    cors,
+  );
+}
+
+const allowedRestoreKey = (rel: string, item: TrashItem) =>
+  rel === item.key ||
+  ((rel.startsWith(`${ANNOTATIONS_FOLDER}/`) || rel.startsWith(`${COVERS_FOLDER}/`) || rel.startsWith('_versions/')) && !rel.includes('..'));
+
+async function restoreFromTrash(id: string, env: Env, cors: Record<string, string>): Promise<Response> {
+  if (!validTrashId(id)) throw new HttpError(400, 'Invalid trash id');
+  const base = `${TRASH_FOLDER}/${id}`;
+  const manifest = await env.PDF_BUCKET.get(`${base}/item.json`);
+  if (!manifest) throw new HttpError(404, 'Not in the trash');
+  const item = JSON.parse(await manifest.text()) as TrashItem;
+  assertPdfKey(item.key);
+  if (await env.PDF_BUCKET.head(item.key)) {
+    throw new HttpError(409, `A document named “${item.name}” already exists in ${item.folder}. Rename or delete it first.`);
+  }
+
+  for (const rel of item.objects) {
+    if (!allowedRestoreKey(rel, item)) continue;
+    await moveObject(env, `${base}/files/${rel}`, rel);
+  }
+  if (item.progress) {
+    await mutateMetadata(item.folder, env, (m) => {
+      m.documents[item.key] = item.progress as MetadataEntry;
+    });
+  }
+  if (item.state) {
+    await mutateJsonFile(STATE_KEY, env, emptyState, (st) => {
+      st.docs[item.key] = item.state as DocState;
+    });
+  }
+  await purgeTrashItem(id, env);
+  return json({ success: true, key: item.key }, cors);
+}
+
+// ---- move / rename
+
+async function moveDocument(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { from?: unknown; to?: unknown } | null;
+  if (!body || typeof body.from !== 'string' || typeof body.to !== 'string') throw new HttpError(400, 'from and to are required');
+  const { from, to } = body;
+  assertPdfKey(from);
+  assertPdfKey(to);
+  if (from === to) throw new HttpError(400, 'Nothing to change');
+  if (to.length > 300) throw new HttpError(400, 'Name is too long');
+  if (!(await env.PDF_BUCKET.head(from))) throw new HttpError(404, 'PDF not found');
+  if (await env.PDF_BUCKET.head(to)) throw new HttpError(409, 'A document with that name already exists there');
+
+  const srcFolder = folderOf(from);
+  const dstFolder = folderOf(to);
+  const progress = (await readMetadata(srcFolder, env).catch(() => ({ data: emptyMetadata(), etag: null }))).data.documents[from];
+
+  // Biggest (and likeliest to fail) first, so a failure leaves everything else untouched.
+  await moveObject(env, from, to);
+
+  const side = await env.PDF_BUCKET.get(annotationsKey(from));
+  if (side) {
+    const text = await side.text();
+    let out = text;
+    try {
+      const parsed = JSON.parse(text) as AnnotationsFile;
+      parsed.pdfId = to;
+      out = JSON.stringify(parsed);
+    } catch {
+      /* move it untouched */
+    }
+    await env.PDF_BUCKET.put(annotationsKey(to), out, { httpMetadata: { contentType: 'application/json' } });
+    await env.PDF_BUCKET.delete(annotationsKey(from));
+  }
+  await moveObject(env, coverKey(from), coverKey(to));
+  for (const v of await listAll(env, `_versions/${from}/`)) {
+    await moveObject(env, v.key, `_versions/${to}/${v.key.split('/').pop()}`);
+  }
+
+  if (srcFolder === dstFolder) {
+    await mutateMetadata(srcFolder, env, (m) => {
+      if (m.documents[from]) m.documents[to] = m.documents[from];
+      delete m.documents[from];
+    });
+  } else {
+    if (progress) {
+      await mutateMetadata(dstFolder, env, (m) => {
+        m.documents[to] = progress;
+      });
+    }
+    await forgetDocument(from, env);
+  }
+
+  await mutateJsonFile(STATE_KEY, env, emptyState, (st) => {
+    if (st.docs[from]) st.docs[to] = st.docs[from];
+    delete st.docs[from];
+  }).catch((e) => console.error('state move failed', e));
+  await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
+    if (r.docs[from] !== undefined) r.docs[to] = r.docs[from];
+    delete r.docs[from];
+  }).catch((e) => console.error('reading move failed', e));
+
+  return json({ success: true, key: to }, cors);
+}
+
+// ---- version history
+
+async function listVersions(key: string, env: Env, cors: Record<string, string>): Promise<Response> {
+  const objs = await listAll(env, `_versions/${key}/`);
+  const items = objs
+    .map((o) => ({ id: o.key.split('/').pop()!.replace(/\.pdf$/i, ''), size: o.size, uploaded: o.uploaded.toISOString() }))
+    .sort((a, b) => (a.id < b.id ? 1 : -1));
+  return json(items, cors);
+}
+
+async function restoreVersion(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
+  const id = typeof body?.id === 'string' && /^[0-9TZ-]+$/.test(body.id) ? body.id : null;
+  if (!id) throw new HttpError(400, 'Invalid version id');
+  const version = await env.PDF_BUCKET.get(`_versions/${key}/${id}.pdf`);
+  if (!version) throw new HttpError(404, 'Version not found');
+
+  await backupExisting(key, env, false); // keep what is current as a new backup before swapping
+  await env.PDF_BUCKET.put(key, version.body, { httpMetadata: { contentType: 'application/pdf' } });
+  await pruneVersions(key, env);
+  return json({ success: true }, cors);
 }
 
 // ---------------------------------------------------------------- metadata (optimistic concurrency)
@@ -478,7 +895,14 @@ async function listFolders(env: Env): Promise<string[]> {
 }
 
 async function listDocuments(env: Env, cors: Record<string, string>): Promise<Response> {
-  const folders = await listFolders(env);
+  const [folders, st, reading, covers] = await Promise.all([
+    listFolders(env),
+    // These extras must never stop the library from loading.
+    readJsonFile(STATE_KEY, env, emptyState).catch(() => ({ data: emptyState(), etag: null })),
+    readJsonFile(READING_KEY, env, emptyReading).catch(() => ({ data: emptyReading(), etag: null })),
+    listAll(env, `${COVERS_FOLDER}/`).catch(() => [] as R2Object[]),
+  ]);
+  const coverMap = new Map(covers.map((c) => [c.key.slice(COVERS_FOLDER.length + 1).replace(/\.jpg$/i, ''), c.uploaded.getTime()]));
 
   const perFolder = await Promise.all(
     folders.map(async (folder) => {
@@ -508,8 +932,11 @@ async function listDocuments(env: Env, cors: Record<string, string>): Promise<Re
             totalPages: entry?.totalPages ?? 0,
             // null = never opened (previously this was faked with the upload date)
             lastOpened: entry?.lastOpened ?? null,
-            readingTime: entry?.readingTime ?? 0,
+            readingTime: reading.data.docs[o.key] ?? entry?.readingTime ?? 0,
             view: sanitizeView(entry?.view) ?? null,
+            favorite: !!st.data.docs[o.key]?.favorite,
+            tags: st.data.docs[o.key]?.tags ?? [],
+            cover: coverMap.get(o.key) ?? null,
           };
         });
     }),
@@ -639,18 +1066,20 @@ async function saveDocument(
   return json({ success: true, size: body.byteLength, etag: saved.httpEtag }, cors);
 }
 
-/** Copy the current object to _versions/<key>/<timestamp>.pdf and prune old copies. */
-async function backupExisting(key: string, env: Env): Promise<void> {
+/** Copy the current object to _versions/<key>/<timestamp>.pdf and (optionally) prune old copies. */
+async function backupExisting(key: string, env: Env, prune = true): Promise<void> {
   const existing = await env.PDF_BUCKET.get(key);
   if (!existing) return;
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const prefix = `_versions/${key}/`;
-  await env.PDF_BUCKET.put(`${prefix}${stamp}.pdf`, existing.body, {
+  await env.PDF_BUCKET.put(`_versions/${key}/${stamp}.pdf`, existing.body, {
     httpMetadata: { contentType: 'application/pdf' },
   });
+  if (prune) await pruneVersions(key, env);
+}
 
-  const versions = await env.PDF_BUCKET.list({ prefix });
+async function pruneVersions(key: string, env: Env): Promise<void> {
+  const versions = await env.PDF_BUCKET.list({ prefix: `_versions/${key}/` });
   const stale = versions.objects
     .map((o) => o.key)
     .sort() // ISO-ish timestamps sort chronologically

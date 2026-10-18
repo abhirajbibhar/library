@@ -1,4 +1,4 @@
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, StorageOverview } from '../types';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
 
 export interface RequestOptions {
   signal?: AbortSignal;
@@ -33,10 +33,21 @@ export interface StorageBackend {
     file: Blob,
     opts?: RequestOptions & { onProgress?: (fraction: number) => void },
   ): Promise<string | null>;
-  /** Deletes the PDF plus its annotations, backups and progress. Cannot be undone. */
-  deleteDocument(id: string, opts?: RequestOptions): Promise<void>;
-  /** Deletes a folder and everything in it. Cannot be undone. */
-  deleteFolder(name: string, opts?: RequestOptions): Promise<void>;
+  /** "Delete": moves the PDF with its annotations, cover and backups to the trash (kept 30 days). */
+  trashDocument(id: string, opts?: RequestOptions): Promise<void>;
+  listTrash(opts?: RequestOptions): Promise<TrashEntry[]>;
+  restoreFromTrash(trashId: string, opts?: RequestOptions): Promise<string>;
+  /** Deletes one trash entry for good, or every entry when no id is given. */
+  purgeTrash(trashId?: string, opts?: RequestOptions): Promise<void>;
+  /** Renames and/or moves a PDF (annotations, progress, cover and backups follow it). Resolves with the new key. */
+  moveDocument(from: string, to: string, opts?: RequestOptions): Promise<string>;
+  setDocState(id: string, change: { favorite?: boolean; tags?: string[] }, opts?: RequestOptions): Promise<{ favorite: boolean; tags: string[] }>;
+  getReading(opts?: RequestOptions): Promise<ReadingStats>;
+  logReading(id: string, seconds: number, day: string, opts?: { keepalive?: boolean }): Promise<void>;
+  setReadingGoal(minutes: number, opts?: RequestOptions): Promise<void>;
+  putCover(id: string, image: Blob, opts?: RequestOptions): Promise<void>;
+  listVersions(id: string, opts?: RequestOptions): Promise<VersionInfo[]>;
+  restoreVersion(id: string, versionId: string, opts?: RequestOptions): Promise<void>;
   getStorage(opts?: RequestOptions): Promise<StorageOverview>;
   /** Every annotation across all PDFs, newest first. */
   getAllAnnotations(opts?: RequestOptions): Promise<AnnotationSummary[]>;

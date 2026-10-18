@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { uploadDocument } from '../lib/db';
+import { putCover, uploadDocument } from '../lib/db';
+import { renderCover } from '../lib/cover';
+import { folderNameError } from '../lib/names';
 import { useLibrary } from '../hooks/useLibrary';
 import { folderPath, formatSize, plural } from '../lib/format';
 import { Icon } from '../components/Icon';
@@ -21,17 +23,6 @@ interface Item {
 }
 
 let nextUid = 1;
-
-/** Mirrors the worker: no slashes, not hidden/reserved, no "..". Returns an error message or null. */
-function folderError(name: string): string | null {
-  if (!name) return 'Enter a folder name.';
-  if (name.length > 100) return 'Use 100 characters or fewer.';
-  if (/[\\/\u0000-\u001f]/.test(name)) return 'Folder names can’t contain slashes.';
-  if (name.includes('..')) return 'Folder names can’t contain “..”.';
-  if (name.startsWith('_') || name.startsWith('.')) return 'Folder names can’t start with “_” or “.”.';
-  if (name.toLowerCase() === 'annotation') return '“Annotation” is reserved for your notes.';
-  return null;
-}
 
 function fileProblem(file: File): string | null {
   if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return 'Only PDF files can be added';
@@ -63,8 +54,8 @@ export default function UploadPage() {
 
   const isNew = choice === NEW_FOLDER;
   const folder = isNew ? newName.trim() : choice;
-  const nameError = isNew && newName ? folderError(folder) : null;
-  const folderOk = isNew ? !!folder && !folderError(folder) : !!folder;
+  const nameError = isNew && newName ? folderNameError(folder) : null;
+  const folderOk = isNew ? !!folder && !folderNameError(folder) : !!folder;
   // A name typed for a "new" folder may already exist: treat it as that folder.
   const knownFolder = folders.some(([f]) => f === folder);
 
@@ -112,6 +103,10 @@ export default function UploadPage() {
           onProgress: (p) => patch(r.uid, { progress: p }),
         });
         patch(r.uid, { status: 'done', progress: 1 });
+        // Draw page 1 as the cover. Best effort: a missing cover just falls back to the coloured card.
+        void renderCover(r.file)
+          .then((blob) => putCover(`${folder}/${keyName(r.file)}`, blob))
+          .catch((err) => console.warn('Cover not created:', err));
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') patch(r.uid, { status: 'ready', progress: 0 });
         else patch(r.uid, { status: 'error', message: err instanceof Error ? err.message : 'Upload failed' });

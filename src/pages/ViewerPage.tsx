@@ -4,6 +4,7 @@ import { PDFViewer, type PDFViewerRef } from '@embedpdf/react-pdf-viewer';
 import type { AnnotationOp, AnnotationsFile, ViewState } from '../types';
 import { WASM_URL, VIEWER_FONTS } from '../lib/viewer-assets';
 import { updateMetadata, getMetadata, getAnnotations, patchAnnotations } from '../lib/db';
+import { useReadingTimer } from '../hooks/useReadingTimer';
 import { useTheme } from '../contexts/ThemeContext';
 import { ANNOTATION_AUTHOR, API_BASE, PDF_LOAD_MODE } from '../config';
 
@@ -126,6 +127,7 @@ export default function ViewerPage() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [viewerReady, setViewerReady] = useState(false);
+  useReadingTimer(id, viewerReady); // real reading time, shown on Home
   const [resumeState, setResumeState] = useState<ResumeState>('idle');
   const [resumeTarget, setResumeTarget] = useState<number | null>(null);
   const [progressWarning, setProgressWarning] = useState(false);

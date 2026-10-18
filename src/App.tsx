@@ -6,6 +6,7 @@ import LibraryPage from './pages/LibraryPage';
 import FolderPage from './pages/FolderPage';
 import AnnotationsPage from './pages/AnnotationsPage';
 import UploadPage from './pages/UploadPage';
+import TrashPage from './pages/TrashPage';
 
 // The viewer pulls in ~1.3 MB of JS + a 4.6 MB PDFium wasm; don't make the library page pay for it.
 const ViewerPage = lazy(() => import('./pages/ViewerPage'));
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/folder/:name" element={<FolderPage />} />
             <Route path="/annotations" element={<AnnotationsPage />} />
             <Route path="/upload" element={<UploadPage />} />
+            <Route path="/trash" element={<TrashPage />} />
             <Route path="/viewer/:id" element={<ViewerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

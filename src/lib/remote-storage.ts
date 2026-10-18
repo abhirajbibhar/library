@@ -1,5 +1,5 @@
 import { ConflictError, type StorageBackend, type RequestOptions, type VersionedPdf } from './storage-interface';
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, StorageOverview } from '../types';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
 import { API_BASE } from '../config';
 
 /**
@@ -102,7 +102,7 @@ export class RemoteStorageBackend implements StorageBackend {
     });
   }
 
-  async deleteDocument(id: string, opts: RequestOptions = {}): Promise<void> {
+  async trashDocument(id: string, opts: RequestOptions = {}): Promise<void> {
     const res = await fetch(`${API_BASE}/documents/${enc(id)}`, {
       method: 'DELETE',
       headers: { 'X-Confirm-Delete': encodeURIComponent(id) },
@@ -111,13 +111,100 @@ export class RemoteStorageBackend implements StorageBackend {
     if (!res.ok) await fail(res, 'Failed to delete document');
   }
 
-  async deleteFolder(name: string, opts: RequestOptions = {}): Promise<void> {
-    const res = await fetch(`${API_BASE}/folders/${enc(name)}`, {
+  async listTrash(opts: RequestOptions = {}): Promise<TrashEntry[]> {
+    const res = await fetch(`${API_BASE}/trash`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to load the trash');
+    return res.json();
+  }
+
+  async restoreFromTrash(trashId: string, opts: RequestOptions = {}): Promise<string> {
+    const res = await fetch(`${API_BASE}/trash/${encodeURIComponent(trashId)}/restore`, { method: 'POST', signal: opts.signal });
+    if (!res.ok) await fail(res, 'Failed to restore');
+    return (await res.json()).key;
+  }
+
+  async purgeTrash(trashId?: string, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(trashId ? `${API_BASE}/trash/${encodeURIComponent(trashId)}` : `${API_BASE}/trash`, {
       method: 'DELETE',
-      headers: { 'X-Confirm-Delete': encodeURIComponent(name) },
+      headers: { 'X-Confirm-Delete': encodeURIComponent(trashId ?? 'empty-trash') },
       signal: opts.signal,
     });
-    if (!res.ok) await fail(res, 'Failed to delete folder');
+    if (!res.ok) await fail(res, 'Failed to delete');
+  }
+
+  async moveDocument(from: string, to: string, opts: RequestOptions = {}): Promise<string> {
+    const res = await fetch(`${API_BASE}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to move document');
+    return (await res.json()).key;
+  }
+
+  async setDocState(id: string, change: { favorite?: boolean; tags?: string[] }, opts: RequestOptions = {}) {
+    const res = await fetch(`${API_BASE}/state/${enc(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(change),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to save');
+    const body = await res.json();
+    return { favorite: !!body.favorite, tags: Array.isArray(body.tags) ? (body.tags as string[]) : [] };
+  }
+
+  async getReading(opts: RequestOptions = {}): Promise<ReadingStats> {
+    const res = await fetch(`${API_BASE}/reading`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to load reading time');
+    return res.json();
+  }
+
+  async logReading(id: string, seconds: number, day: string, opts: { keepalive?: boolean } = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/reading`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: id, seconds, day }),
+      keepalive: opts.keepalive,
+    });
+    if (!res.ok) await fail(res, 'Failed to save reading time');
+  }
+
+  async setReadingGoal(minutes: number, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/reading/goal`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goalMinutes: minutes }),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to save goal');
+  }
+
+  async putCover(id: string, image: Blob, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/covers/${enc(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': image.type || 'image/jpeg' },
+      body: image,
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to save cover');
+  }
+
+  async listVersions(id: string, opts: RequestOptions = {}): Promise<VersionInfo[]> {
+    const res = await fetch(`${API_BASE}/versions/${enc(id)}`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to load versions');
+    return res.json();
+  }
+
+  async restoreVersion(id: string, versionId: string, opts: RequestOptions = {}): Promise<void> {
+    const res = await fetch(`${API_BASE}/versions/${enc(id)}/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: versionId }),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to restore version');
   }
 
   async getStorage(opts: RequestOptions = {}): Promise<StorageOverview> {

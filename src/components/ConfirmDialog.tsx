@@ -7,13 +7,14 @@ interface Props {
   /** The person must type this exactly before the button enables (used for whole folders). */
   requireText?: string;
   busy?: boolean;
+  busyLabel?: string;
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
 /** A modal confirmation for destructive actions. Escape or the backdrop cancels. */
-export default function ConfirmDialog({ title, children, confirmLabel, requireText, busy, error, onConfirm, onCancel }: Props) {
+export default function ConfirmDialog({ title, children, confirmLabel, requireText, busy, busyLabel = 'Deleting…', error, onConfirm, onCancel }: Props) {
   const [typed, setTyped] = useState('');
   const cancelRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,7 +46,7 @@ export default function ConfirmDialog({ title, children, confirmLabel, requireTe
         <div className="mt-6 flex justify-end gap-3">
           <button ref={cancelRef} type="button" className="btn-ghost focus-ring" onClick={onCancel} disabled={busy}>Cancel</button>
           <button type="button" className="btn-danger focus-ring" onClick={onConfirm} disabled={!ok || busy}>
-            {busy ? 'Deleting…' : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, StorageOverview } from '../types';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
 import type { StorageBackend, RequestOptions, VersionedPdf } from './storage-interface';
 export { ConflictError } from './storage-interface';
 import { RemoteStorageBackend } from './remote-storage';
@@ -32,5 +32,18 @@ export const uploadDocument = (
 export const getStorage = (opts?: RequestOptions): Promise<StorageOverview> => storage.getStorage(opts);
 export const getAllAnnotations = (opts?: RequestOptions): Promise<AnnotationSummary[]> =>
   storage.getAllAnnotations(opts);
-export const deleteDocument = (id: string, opts?: RequestOptions): Promise<void> => storage.deleteDocument(id, opts);
-export const deleteFolder = (name: string, opts?: RequestOptions): Promise<void> => storage.deleteFolder(name, opts);
+export const trashDocument = (id: string, opts?: RequestOptions): Promise<void> => storage.trashDocument(id, opts);
+export const listTrash = (opts?: RequestOptions): Promise<TrashEntry[]> => storage.listTrash(opts);
+export const restoreFromTrash = (trashId: string, opts?: RequestOptions): Promise<string> => storage.restoreFromTrash(trashId, opts);
+export const purgeTrash = (trashId?: string, opts?: RequestOptions): Promise<void> => storage.purgeTrash(trashId, opts);
+export const moveDocument = (from: string, to: string, opts?: RequestOptions): Promise<string> => storage.moveDocument(from, to, opts);
+export const setDocState = (id: string, change: { favorite?: boolean; tags?: string[] }, opts?: RequestOptions) =>
+  storage.setDocState(id, change, opts);
+export const getReading = (opts?: RequestOptions): Promise<ReadingStats> => storage.getReading(opts);
+export const logReading = (id: string, seconds: number, day: string, opts?: { keepalive?: boolean }): Promise<void> =>
+  storage.logReading(id, seconds, day, opts);
+export const setReadingGoal = (minutes: number, opts?: RequestOptions): Promise<void> => storage.setReadingGoal(minutes, opts);
+export const putCover = (id: string, image: Blob, opts?: RequestOptions): Promise<void> => storage.putCover(id, image, opts);
+export const listVersions = (id: string, opts?: RequestOptions): Promise<VersionInfo[]> => storage.listVersions(id, opts);
+export const restoreVersion = (id: string, versionId: string, opts?: RequestOptions): Promise<void> =>
+  storage.restoreVersion(id, versionId, opts);
