@@ -6,7 +6,7 @@
     <title>My Library</title>
     <!-- Installable app: crossorigin="use-credentials" lets the manifest load behind Cloudflare Access -->
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#111827" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Library" />
@@ -15,63 +15,21 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Oriya:wght@400;600&display=swap" rel="stylesheet" />
     <style>
-      /* Inline styles to ensure theme colors apply immediately, avoiding flash */
+      /* The app is dark-only: paint the page before React loads to avoid a white flash */
       html,
       body {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
-      }
-      html.light,
-      html.light body {
-        background-color: #ffffff !important;
-        color: #000000;
-      }
-      html.dark,
-      html.dark body {
-        background-color: #1a1a1a !important;
-        color: #ffffff;
+        background-color: #030712;
+        color: #f3f4f6;
+        color-scheme: dark;
       }
     </style>
     <script>
-      // Set theme immediately before React loads to avoid flash
-      (function () {
-        const isInIframe = window.self !== window.top;
-
-        function applyThemeToDOM(theme) {
-          document.documentElement.classList.remove("light", "dark");
-          document.documentElement.classList.add(theme);
-          document.documentElement.setAttribute("data-theme", theme);
-        }
-
-        // Resolve the theme before first paint (saved choice -> OS preference -> light)
-        // so dark-mode users don't see a white flash while React boots.
-        function initialTheme() {
-          try {
-            var saved = localStorage.getItem("theme");
-            if (saved === "light" || saved === "dark") return saved;
-          } catch (e) {}
-          return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-            ? "dark"
-            : "light";
-        }
-
-        if (isInIframe) {
-          // Embedded: the parent window controls the theme
-          applyThemeToDOM(initialTheme());
-          window.addEventListener("message", function (event) {
-            if (event.data && typeof event.data.theme === "string") {
-              const theme = event.data.theme;
-              if (theme === "light" || theme === "dark") {
-                applyThemeToDOM(theme);
-              }
-            }
-          });
-        } else {
-          applyThemeToDOM(initialTheme());
-        }
-      })();
+      document.documentElement.classList.add("dark");
+      document.documentElement.setAttribute("data-theme", "dark");
     </script>
   </head>
   <body>

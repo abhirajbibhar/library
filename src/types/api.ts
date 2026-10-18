@@ -5,6 +5,16 @@ export interface ViewState {
   scrollMode?: 'vertical' | 'horizontal';
 }
 
+/** Optional details the person fills in on the book page. */
+export interface DocMeta {
+  author?: string;
+  description?: string;
+  publishedYear?: number;
+  language?: string;
+  isbn?: string;
+  rating?: number; // 1-5
+}
+
 /** Shape returned by GET /api/documents */
 export interface PdfDocument {
   id: string; // R2 key, e.g. "My-Folder/Volume-01.pdf"
@@ -20,6 +30,7 @@ export interface PdfDocument {
   view?: ViewState | null;
   favorite: boolean;
   tags: string[];
+  meta: DocMeta;
   cover: number | null; // upload time (ms) of the cover image, null = none yet
 }
 
@@ -96,8 +107,9 @@ export interface TrashEntry {
 }
 
 /** GET /api/reading: seconds read per local day ("YYYY-MM-DD") and the optional daily goal. */
-export interface ReadingStats {
+export interface ReadingLog {
   days: Record<string, number>;
+  dayDocs: Record<string, Record<string, number>>; // day -> pdf key -> seconds (last ~4 months)
   goalMinutes: number; // 0 = no goal
 }
 
@@ -106,4 +118,28 @@ export interface VersionInfo {
   id: string;
   size: number;
   uploaded: string;
+}
+
+/** A collection as stored by the Worker (bookIds are PDF keys). */
+export interface CollectionRecord {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  bookIds: string[];
+  createdAt: string;
+}
+
+/** A quote you picked, with its attribution (stored in _library/quotes.json). */
+export interface UserQuote {
+  id: string;
+  text: string;
+  author: string;
+  book: string;
+  year: number | null;
+  page: number | null;
+  note: string;
+  bookKey: string; // the PDF it came from, '' if typed in
+  addedAt: string;
 }

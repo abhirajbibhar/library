@@ -307,34 +307,41 @@ Built for reading Babasaheb Dr. B.R. Ambedkar's Writings and Speeches.
 
 ## Pages and routes
 
-The app is one Cloudflare Worker that serves both the built frontend (`dist/`, via Workers Static Assets) and the API under `/api/*`.
+One Cloudflare Worker serves both the built frontend (`dist/`, via Workers Static Assets) and the API under `/api/*`. The interface is the "CloudLibrary" design, wired to your real bucket.
 
 | Route | Page |
 | --- | --- |
-| `#/` | Home dashboard: continue reading, stats, daily quote (one of your highlights), storage used, recent documents and annotations |
-| `#/library` | Explore Library: every folder is a shelf of books (`?q=` pre-fills the search) |
-| `#/folder/<name>` | One folder: summary, search, sort, filters, grid or list |
-| `#/annotations` | All highlights and notes across the library, grouped by document |
-| `#/trash` | Deleted documents, restorable for 30 days |
-| `#/upload` | Add PDFs to an existing or new folder (progress, duplicate check, 95 MB limit) |
-| `#/viewer/<id>` | The PDF reader |
+| `#/` | Dashboard: continue reading, favourites, stats, daily quote, weekly reading time, collections |
+| `#/library` | Library: search, filter by folder, collection or favourites, sort, grid or list, **Add Book** (real upload) |
+| `#/book/<id>` | Book page: cover, rating, details, tags, progress, collections, notes; rename, move, version history, delete |
+| `#/reader/<id>` | The reader (EmbedPDF) with resume, progress, annotation sync and a notes panel. `?page=12` opens at page 12 |
+| `#/notes` | Every highlight and note: search, edit, delete, export (Markdown or CSV) |
+| `#/quotes` | Quotes you picked (with author, book, year, page). Saved in `_library/quotes.json`; one is shown on the dashboard each day |
+| `#/collections`, `#/collections/<id>` | Your own groups of books (independent of folders) |
+| `#/streak`, `#/streak/<date>` | Real reading history from the reading log |
+| `#/trash` | Deleted books, restorable for 30 days |
+| `#/settings` | Daily goal, folders (rename, delete), storage, covers, exports, install app |
 
-### API added for these pages
+Old `#/viewer/<key>` links still work (they forward to the reader).
 
-- `GET /api/storage` returns bytes used in the bucket, per folder, plus backups and annotation files.
-- `GET /api/annotations` returns every live annotation across all PDFs, newest first (up to 300 annotation files, 2000 items).
-- Uploads use the existing `PUT /api/documents/<folder>/<file>.pdf`. A new folder is created automatically by the first upload.
-- `DELETE /api/documents/<folder>/<file>.pdf` moves a document (PDF, annotations, cover, backups) to `_trash/` for 30 days. It needs an `X-Confirm-Delete` header naming the key. A folder is deleted by trashing each of its documents.
-- `GET /api/trash`, `POST /api/trash/<id>/restore`, `DELETE /api/trash/<id>` and `DELETE /api/trash` (header `X-Confirm-Delete: empty-trash`) manage the trash. Entries older than 30 days are purged when the trash is listed.
-- `POST /api/move` with `{ "from": "A/x.pdf", "to": "B/y.pdf" }` renames and/or moves a document; annotations, progress, cover, backups, favourites and reading time follow it.
-- `PATCH /api/state/<key>` sets `{ favorite, tags }` (stored in `_library/state.json`).
-- `POST /api/reading` logs reading seconds, `GET /api/reading` returns per-day totals, `PUT /api/reading/goal` sets the daily goal (stored in `_library/reading.json`).
-- `GET|PUT /api/covers/<key>` read and write the cover image (`_covers/<key>.jpg`). Covers are drawn in the browser with pdf.js, loaded on demand from jsDelivr.
-- `GET /api/versions/<key>` lists earlier copies of a PDF and `POST /api/versions/<key>/restore` brings one back.
-- `#/viewer/<id>?page=12` opens the reader at page 12 instead of the saved position (annotation and quote links use it).
+### How the data maps
+
+- A **book** is a PDF in R2 (`<folder>/<file>.pdf`); its **folder** is shown as the genre. Nothing is stored in the browser except the app itself.
+- **Highlights and notes** come from `Annotation/<folder>/<file>.json`, written by the reader.
+- **Favourites, tags, ratings and book details** live in `_library/state.json`; **collections** in `_library/collections.json`; **quotes** in `_library/quotes.json` (a plain JSON file: `{ "version": 1, "quotes": [ { "text", "author", "book", "year", "page", "note" } ] }`); **reading time** in `_library/reading.json`; **covers** in `_covers/`.
+
+### API
+
+- `GET /api/documents` lists books (with progress, favourite, tags, details and cover).
+- `GET /api/storage`, `GET /api/annotations`, `GET|PUT /api/quotes`, `GET /api/collections`, `PUT /api/collections`, `GET /api/reading`, `POST /api/reading`, `PUT /api/reading/goal`.
+- `PUT /api/documents/<folder>/<file>.pdf` uploads (a new folder is created by its first file). `POST /api/move` renames or moves a book with everything attached to it.
+- `DELETE /api/documents/<key>` moves a book to the trash (needs an `X-Confirm-Delete` header naming the key). `GET /api/trash`, `POST /api/trash/<id>/restore`, `DELETE /api/trash/<id>`, `DELETE /api/trash` (header `X-Confirm-Delete: empty-trash`).
+- `PATCH /api/state/<key>` sets `{ favorite, tags, meta }`. `GET|PUT /api/covers/<key>`. `GET /api/versions/<key>`, `POST /api/versions/<key>/restore`.
+
+Covers are drawn in the browser with pdf.js, loaded on demand from jsDelivr, so adding books works offline-first only for the upload itself.
 
 Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).
 
 ### Installable app
 
-`public/manifest.webmanifest`, `public/sw.js` and `public/icons/` make the site installable ("Add to Home Screen" / "Install"). The service worker only caches the app's own files; PDFs, notes and progress always come from the network.
+`public/manifest.webmanifest`, `public/sw.js` and `public/icons/` make the site installable. The service worker only caches the app's own files; PDFs, notes and progress always come from the network.

@@ -1,5 +1,6 @@
 import { ConflictError, type StorageBackend, type RequestOptions, type VersionedPdf } from './storage-interface';
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
+import type { CollectionRecord, DocMeta, UserQuote } from '../types/api';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingLog, StorageOverview, TrashEntry, VersionInfo } from '../types';
 import { API_BASE } from '../config';
 
 /**
@@ -143,7 +144,7 @@ export class RemoteStorageBackend implements StorageBackend {
     return (await res.json()).key;
   }
 
-  async setDocState(id: string, change: { favorite?: boolean; tags?: string[] }, opts: RequestOptions = {}) {
+  async setDocState(id: string, change: { favorite?: boolean; tags?: string[]; meta?: DocMeta }, opts: RequestOptions = {}) {
     const res = await fetch(`${API_BASE}/state/${enc(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -152,10 +153,46 @@ export class RemoteStorageBackend implements StorageBackend {
     });
     if (!res.ok) await fail(res, 'Failed to save');
     const body = await res.json();
-    return { favorite: !!body.favorite, tags: Array.isArray(body.tags) ? (body.tags as string[]) : [] };
+    return { favorite: !!body.favorite, tags: Array.isArray(body.tags) ? (body.tags as string[]) : [], meta: (body.meta ?? {}) as DocMeta };
   }
 
-  async getReading(opts: RequestOptions = {}): Promise<ReadingStats> {
+  async getQuotes(opts: RequestOptions = {}): Promise<UserQuote[]> {
+    const res = await fetch(`${API_BASE}/quotes`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to load quotes');
+    const body = await res.json();
+    return Array.isArray(body?.quotes) ? body.quotes : [];
+  }
+
+  async saveQuotes(quotes: UserQuote[], opts: RequestOptions = {}): Promise<UserQuote[]> {
+    const res = await fetch(`${API_BASE}/quotes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quotes }),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to save quotes');
+    return (await res.json()).quotes;
+  }
+
+  async getCollections(opts: RequestOptions = {}): Promise<CollectionRecord[]> {
+    const res = await fetch(`${API_BASE}/collections`, { signal: opts.signal, cache: 'no-store' });
+    if (!res.ok) await fail(res, 'Failed to load collections');
+    const body = await res.json();
+    return Array.isArray(body?.collections) ? body.collections : [];
+  }
+
+  async saveCollections(collections: CollectionRecord[], opts: RequestOptions = {}): Promise<CollectionRecord[]> {
+    const res = await fetch(`${API_BASE}/collections`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collections }),
+      signal: opts.signal,
+    });
+    if (!res.ok) await fail(res, 'Failed to save collections');
+    return (await res.json()).collections;
+  }
+
+  async getReading(opts: RequestOptions = {}): Promise<ReadingLog> {
     const res = await fetch(`${API_BASE}/reading`, { signal: opts.signal, cache: 'no-store' });
     if (!res.ok) await fail(res, 'Failed to load reading time');
     return res.json();

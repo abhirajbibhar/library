@@ -1,4 +1,6 @@
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
+import type { DocMeta } from '../types/api';
+import type { CollectionRecord, UserQuote } from '../types/api';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingLog, StorageOverview, TrashEntry, VersionInfo } from '../types';
 
 export interface RequestOptions {
   signal?: AbortSignal;
@@ -41,8 +43,13 @@ export interface StorageBackend {
   purgeTrash(trashId?: string, opts?: RequestOptions): Promise<void>;
   /** Renames and/or moves a PDF (annotations, progress, cover and backups follow it). Resolves with the new key. */
   moveDocument(from: string, to: string, opts?: RequestOptions): Promise<string>;
-  setDocState(id: string, change: { favorite?: boolean; tags?: string[] }, opts?: RequestOptions): Promise<{ favorite: boolean; tags: string[] }>;
-  getReading(opts?: RequestOptions): Promise<ReadingStats>;
+  setDocState(id: string, change: { favorite?: boolean; tags?: string[]; meta?: DocMeta }, opts?: RequestOptions): Promise<{ favorite: boolean; tags: string[]; meta: DocMeta }>;
+  getQuotes(opts?: RequestOptions): Promise<UserQuote[]>;
+  saveQuotes(quotes: UserQuote[], opts?: RequestOptions): Promise<UserQuote[]>;
+  getCollections(opts?: RequestOptions): Promise<CollectionRecord[]>;
+  /** Replaces the whole list of collections (small, so the client sends it all). */
+  saveCollections(collections: CollectionRecord[], opts?: RequestOptions): Promise<CollectionRecord[]>;
+  getReading(opts?: RequestOptions): Promise<ReadingLog>;
   logReading(id: string, seconds: number, day: string, opts?: { keepalive?: boolean }): Promise<void>;
   setReadingGoal(minutes: number, opts?: RequestOptions): Promise<void>;
   putCover(id: string, image: Blob, opts?: RequestOptions): Promise<void>;

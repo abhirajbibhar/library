@@ -230,6 +230,16 @@ export default {
         return await patchDocState(key, request, env, cors);
       }
 
+      if (path === '/api/quotes') {
+        if (request.method === 'GET') return await getQuotes(env, cors);
+        if (request.method === 'PUT') return await putQuotes(request, env, cors);
+      }
+
+      if (path === '/api/collections') {
+        if (request.method === 'GET') return await getCollections(env, cors);
+        if (request.method === 'PUT') return await putCollections(request, env, cors);
+      }
+
       if (path === '/api/reading') {
         if (request.method === 'GET') return await getReading(env, cors);
         if (request.method === 'POST') return await logReading(request, env, cors);
@@ -404,13 +414,54 @@ const COVERS_FOLDER = '_covers';
 const LIBRARY_FOLDER = '_library';
 const STATE_KEY = `${LIBRARY_FOLDER}/state.json`;
 const READING_KEY = `${LIBRARY_FOLDER}/reading.json`;
+const COLLECTIONS_KEY = `${LIBRARY_FOLDER}/collections.json`;
+const QUOTES_KEY = `${LIBRARY_FOLDER}/quotes.json`;
 const TRASH_DAYS = 30;
 const MAX_COVER_BYTES = 400 * 1024;
 const MAX_TAGS = 12;
 
+/** Optional book details the person can fill in (shown on the book page). */
+interface DocMeta {
+  author?: string;
+  description?: string;
+  publishedYear?: number;
+  language?: string;
+  isbn?: string;
+  rating?: number; // 1-5
+}
 interface DocState {
   favorite?: boolean;
   tags?: string[];
+  meta?: DocMeta;
+}
+interface CollectionRecord {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  bookIds: string[]; // pdf keys
+  createdAt: string;
+}
+/** A quote the person picked (from an annotation or typed in) with its attribution. */
+interface QuoteRecord {
+  id: string;
+  text: string;
+  author: string;
+  book: string;
+  year: number | null;
+  page: number | null;
+  note: string; // optional context, e.g. the chapter or why it matters
+  bookKey: string; // pdf key it came from ('' if typed in)
+  addedAt: string;
+}
+interface QuotesFile {
+  version: 1;
+  quotes: QuoteRecord[];
+}
+interface CollectionsFile {
+  version: 1;
+  collections: CollectionRecord[];
 }
 interface StateFile {
   version: 1;
@@ -420,6 +471,7 @@ interface ReadingFile {
   version: 1;
   days: Record<string, number>; // "YYYY-MM-DD" (the reader's local day) -> seconds
   docs: Record<string, number>; // pdf key -> seconds
+  dayDocs?: Record<string, Record<string, number>>; // day -> pdf key -> seconds (last ~4 months)
   goalMinutes?: number;
 }
 interface TrashItem {
@@ -435,7 +487,9 @@ interface TrashItem {
 }
 
 const emptyState = (): StateFile => ({ version: 1, docs: {} });
-const emptyReading = (): ReadingFile => ({ version: 1, days: {}, docs: {} });
+const emptyReading = (): ReadingFile => ({ version: 1, days: {}, docs: {}, dayDocs: {} });
+const emptyQuotes = (): QuotesFile => ({ version: 1, quotes: [] });
+const emptyCollections = (): CollectionsFile => ({ version: 1, collections: [] });
 const coverKey = (key: string) => `${COVERS_FOLDER}/${key}.jpg`;
 
 /** A DELETE only goes through when the caller names exactly what it wants gone (guards against stray requests). */
@@ -510,8 +564,28 @@ function sanitizeTags(value: unknown): string[] {
   return out;
 }
 
+const clipStr = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, max) : '');
+
+function sanitizeMeta(value: unknown): DocMeta {
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const out: DocMeta = {};
+  const author = clipStr(v.author, 120);
+  const description = clipStr(v.description, 2000);
+  const language = clipStr(v.language, 40);
+  const isbn = clipStr(v.isbn, 30);
+  if (author) out.author = author;
+  if (description) out.description = description;
+  if (language) out.language = language;
+  if (isbn) out.isbn = isbn;
+  const year = toInt(v.publishedYear, 0, 0, 3000);
+  if (year) out.publishedYear = year;
+  const rating = toInt(v.rating, 0, 0, 5);
+  if (rating) out.rating = rating;
+  return out;
+}
+
 async function patchDocState(key: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
-  const body = (await request.json().catch(() => null)) as { favorite?: unknown; tags?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { favorite?: unknown; tags?: unknown; meta?: unknown } | null;
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
   if (!(await env.PDF_BUCKET.head(key))) throw new HttpError(404, 'PDF not found');
 
@@ -520,14 +594,16 @@ async function patchDocState(key: string, request: Request, env: Env, cors: Reco
     const cur: DocState = { ...(st.docs[key] ?? {}) };
     if (typeof body.favorite === 'boolean') cur.favorite = body.favorite;
     if (body.tags !== undefined) cur.tags = sanitizeTags(body.tags);
+    if (body.meta !== undefined) cur.meta = sanitizeMeta(body.meta);
     const clean: DocState = {};
     if (cur.favorite) clean.favorite = true;
     if (cur.tags && cur.tags.length) clean.tags = cur.tags;
+    if (cur.meta && Object.keys(cur.meta).length) clean.meta = cur.meta;
     if (Object.keys(clean).length) st.docs[key] = clean;
     else delete st.docs[key];
     result = clean;
   });
-  return json({ success: true, favorite: !!result.favorite, tags: result.tags ?? [] }, cors);
+  return json({ success: true, favorite: !!result.favorite, tags: result.tags ?? [], meta: result.meta ?? {} }, cors);
 }
 
 // ---- reading time
@@ -545,16 +621,22 @@ async function logReading(request: Request, env: Env, cors: Record<string, strin
 
   await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
     r.days[day] = (r.days[day] ?? 0) + seconds;
-    if (key) r.docs[key] = (r.docs[key] ?? 0) + seconds;
+    if (key) {
+      r.docs[key] = (r.docs[key] ?? 0) + seconds;
+      r.dayDocs ??= {};
+      r.dayDocs[day] = { ...(r.dayDocs[day] ?? {}), [key]: (r.dayDocs[day]?.[key] ?? 0) + seconds };
+    }
     const cutoff = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
     for (const d of Object.keys(r.days)) if (d < cutoff) delete r.days[d];
+    const docCutoff = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+    for (const d of Object.keys(r.dayDocs ?? {})) if (d < docCutoff) delete r.dayDocs![d];
   });
   return json({ success: true }, cors);
 }
 
 async function getReading(env: Env, cors: Record<string, string>): Promise<Response> {
   const { data } = await readJsonFile(READING_KEY, env, emptyReading);
-  return json({ days: data.days, goalMinutes: data.goalMinutes ?? 0 }, cors);
+  return json({ days: data.days, dayDocs: data.dayDocs ?? {}, goalMinutes: data.goalMinutes ?? 0 }, cors);
 }
 
 async function setReadingGoal(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
@@ -564,6 +646,93 @@ async function setReadingGoal(request: Request, env: Env, cors: Record<string, s
     r.goalMinutes = goal;
   });
   return json({ success: true, goalMinutes: goal }, cors);
+}
+
+// ---- collections (user-made groups of books, independent of folders)
+
+const validBookKey = (k: unknown): k is string =>
+  typeof k === 'string' && k.length <= 300 && k.includes('/') && !k.includes('..') && !k.includes('\\') && /\.pdf$/i.test(k) && !isHiddenFolder(k.split('/')[0]);
+
+function sanitizeCollections(value: unknown): CollectionRecord[] {
+  if (!Array.isArray(value)) throw new HttpError(400, 'collections must be an array');
+  const seen = new Set<string>();
+  const out: CollectionRecord[] = [];
+  for (const raw of value.slice(0, 200)) {
+    const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const id = clipStr(c.id, 60);
+    const name = clipStr(c.name, 60);
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    const ids = Array.isArray(c.bookIds) ? [...new Set(c.bookIds.filter(validBookKey))].slice(0, 2000) : [];
+    out.push({
+      id,
+      name,
+      description: clipStr(c.description, 300),
+      icon: clipStr(c.icon, 8),
+      color: clipStr(c.color, 40),
+      bookIds: ids,
+      createdAt: toIso(c.createdAt),
+    });
+  }
+  return out;
+}
+
+async function getCollections(env: Env, cors: Record<string, string>): Promise<Response> {
+  const { data } = await readJsonFile(COLLECTIONS_KEY, env, emptyCollections);
+  return json({ collections: data.collections }, cors);
+}
+
+async function putCollections(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { collections?: unknown } | null;
+  const collections = sanitizeCollections(body?.collections);
+  await mutateJsonFile(COLLECTIONS_KEY, env, emptyCollections, (f) => {
+    f.collections = collections;
+  });
+  return json({ success: true, collections }, cors);
+}
+
+// ---- quotes (a plain JSON file of passages you chose, with attribution)
+
+function sanitizeQuotes(value: unknown): QuoteRecord[] {
+  if (!Array.isArray(value)) throw new HttpError(400, 'quotes must be an array');
+  const seen = new Set<string>();
+  const out: QuoteRecord[] = [];
+  for (const raw of value.slice(0, 3000)) {
+    const q = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const id = clipStr(q.id, 60);
+    const text = clipStr(q.text, 3000);
+    if (!id || !text || seen.has(id)) continue;
+    seen.add(id);
+    const year = toInt(q.year, 0, 0, 3000);
+    const page = toInt(q.page, 0, 0, 100000);
+    const bookKey = typeof q.bookKey === 'string' && validBookKey(q.bookKey) ? q.bookKey : '';
+    out.push({
+      id,
+      text,
+      author: clipStr(q.author, 120),
+      book: clipStr(q.book, 200),
+      year: year || null,
+      page: page || null,
+      note: clipStr(q.note, 500),
+      bookKey,
+      addedAt: toIso(q.addedAt),
+    });
+  }
+  return out;
+}
+
+async function getQuotes(env: Env, cors: Record<string, string>): Promise<Response> {
+  const { data } = await readJsonFile(QUOTES_KEY, env, emptyQuotes);
+  return json({ quotes: data.quotes }, cors);
+}
+
+async function putQuotes(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { quotes?: unknown } | null;
+  const quotes = sanitizeQuotes(body?.quotes);
+  await mutateJsonFile(QUOTES_KEY, env, emptyQuotes, (f) => {
+    f.quotes = quotes;
+  });
+  return json({ success: true, quotes }, cors);
 }
 
 // ---- covers
@@ -782,6 +951,12 @@ async function moveDocument(request: Request, env: Env, cors: Record<string, str
     if (st.docs[from]) st.docs[to] = st.docs[from];
     delete st.docs[from];
   }).catch((e) => console.error('state move failed', e));
+  await mutateJsonFile(QUOTES_KEY, env, emptyQuotes, (f) => {
+    for (const q of f.quotes) if (q.bookKey === from) q.bookKey = to;
+  }).catch((e) => console.error('quotes move failed', e));
+  await mutateJsonFile(COLLECTIONS_KEY, env, emptyCollections, (f) => {
+    for (const c of f.collections) c.bookIds = c.bookIds.map((k) => (k === from ? to : k));
+  }).catch((e) => console.error('collections move failed', e));
   await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
     if (r.docs[from] !== undefined) r.docs[to] = r.docs[from];
     delete r.docs[from];
@@ -936,6 +1111,7 @@ async function listDocuments(env: Env, cors: Record<string, string>): Promise<Re
             view: sanitizeView(entry?.view) ?? null,
             favorite: !!st.data.docs[o.key]?.favorite,
             tags: st.data.docs[o.key]?.tags ?? [],
+            meta: st.data.docs[o.key]?.meta ?? {},
             cover: coverMap.get(o.key) ?? null,
           };
         });

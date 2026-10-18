@@ -10,7 +10,7 @@ import FormDialog from '../components/FormDialog';
 import type { MenuEntry } from '../components/Menu';
 
 export type DocChange =
-  | { kind: 'changed' } // favourite, tags, cover, version, rename, move
+  | { kind: 'changed'; newKey?: string } // favourite, tags, cover, version, rename, move (newKey = the document's key afterwards)
   | { kind: 'doc-removed'; doc: PdfDocument }
   | { kind: 'folder-removed'; folder: string }
   | { kind: 'folder-renamed'; from: string; to: string };
@@ -152,11 +152,11 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
     );
   } else if (dlg?.type === 'rename-doc') {
     dialog = <RenameDoc doc={dlg.doc} documents={documents} busy={busy} error={error} onCancel={close}
-      onSubmit={(name) => void run(async () => { await moveDocument(dlg.doc.id, keyOf(dlg.doc.folder, name)); }, { kind: 'changed' }, 'Renamed')} />;
+      onSubmit={(name) => void run(async () => { await moveDocument(dlg.doc.id, keyOf(dlg.doc.folder, name)); }, { kind: 'changed', newKey: keyOf(dlg.doc.folder, name) }, 'Renamed')} />;
   } else if (dlg?.type === 'move-doc') {
     const doc = dlg.doc;
     dialog = <MoveDoc doc={doc} documents={documents} busy={busy} error={error} onCancel={close}
-      onSubmit={(folder) => void run(async () => { await moveDocument(doc.id, keyOf(folder, doc.id.split('/').pop()!)); }, { kind: 'changed' }, `Moved to ${folder}`)} />;
+      onSubmit={(folder) => void run(async () => { await moveDocument(doc.id, keyOf(folder, doc.id.split('/').pop()!)); }, { kind: 'changed', newKey: keyOf(folder, doc.id.split('/').pop()!) }, `Moved to ${folder}`)} />;
   } else if (dlg?.type === 'tags') {
     const doc = dlg.doc;
     dialog = <TagsDialog doc={doc} suggestions={allTags(documents)} busy={busy} error={error} onCancel={close}

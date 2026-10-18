@@ -1,41 +1,47 @@
-import { lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider } from './contexts/ThemeContext';
-import HomePage from './pages/HomePage';
-import LibraryPage from './pages/LibraryPage';
-import FolderPage from './pages/FolderPage';
-import AnnotationsPage from './pages/AnnotationsPage';
-import UploadPage from './pages/UploadPage';
-import TrashPage from './pages/TrashPage';
+import { HashRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Library from './pages/Library';
+import BookDetail from './pages/BookDetail';
+import Reader from './pages/Reader';
+import Notes from './pages/Notes';
+import Collections from './pages/Collections';
+import CollectionDetail from './pages/CollectionDetail';
+import DayStreak from './pages/DayStreak';
+import DayDetail from './pages/DayDetail';
+import Trash from './pages/Trash';
+import Quotes from './pages/Quotes';
+import Settings from './pages/Settings';
+import { bookIdFor } from './lib/format';
 
-// The viewer pulls in ~1.3 MB of JS + a 4.6 MB PDFium wasm; don't make the library page pay for it.
-const ViewerPage = lazy(() => import('./pages/ViewerPage'));
-
-function PageSpinner() {
-  return (
-    <div className="h-dvh flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <div className="w-12 h-12 border-4 border-indigo-200 dark:border-indigo-800 border-t-indigo-600 dark:border-t-indigo-400 rounded-full animate-spin" />
-    </div>
-  );
+/** Old links (#/viewer/<key>) keep working: they forward to the reader. */
+function LegacyViewer() {
+  const { id = '' } = useParams();
+  return <Navigate to={`/reader/${bookIdFor(id)}${window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : ''}`} replace />;
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <HashRouter>
-        <Suspense fallback={<PageSpinner />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/library" element={<LibraryPage />} />
-            <Route path="/folder/:name" element={<FolderPage />} />
-            <Route path="/annotations" element={<AnnotationsPage />} />
-            <Route path="/upload" element={<UploadPage />} />
-            <Route path="/trash" element={<TrashPage />} />
-            <Route path="/viewer/:id" element={<ViewerPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
-      </HashRouter>
-    </ThemeProvider>
+    <HashRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/library" element={<Library />} />
+          <Route path="/book/:id" element={<BookDetail />} />
+          <Route path="/reader/:id" element={<Reader />} />
+          <Route path="/viewer/:id" element={<LegacyViewer />} />
+          <Route path="/notes" element={<Notes />} />
+          <Route path="/annotations" element={<Navigate to="/notes" replace />} />
+          <Route path="/collections" element={<Collections />} />
+          <Route path="/collections/:id" element={<CollectionDetail />} />
+          <Route path="/streak" element={<DayStreak />} />
+          <Route path="/streak/:date" element={<DayDetail />} />
+          <Route path="/quotes" element={<Quotes />} />
+          <Route path="/trash" element={<Trash />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </HashRouter>
   );
 }

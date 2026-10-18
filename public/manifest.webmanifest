@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#ffffff",
-  "theme_color": "#4f46e5",
+  "background_color": "#030712",
+  "theme_color": "#111827",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
@@ -16,7 +16,7 @@
   ],
   "shortcuts": [
     { "name": "Explore Library", "url": "/#/library" },
-    { "name": "Add to Library", "url": "/#/upload" },
-    { "name": "Annotations", "url": "/#/annotations" }
+    { "name": "Add to Library", "url": "/#/library?upload=1" },
+    { "name": "Annotations", "url": "/#/notes" }
   ]
 }

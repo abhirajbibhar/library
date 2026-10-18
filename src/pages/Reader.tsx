@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { ArrowLeft, Check, FileDown, Highlighter, PanelRightClose, PanelRightOpen, RefreshCw, Save, StickyNote, X } from 'lucide-react';
 import { PDFViewer, type PDFViewerRef } from '@embedpdf/react-pdf-viewer';
 import type { AnnotationOp, AnnotationsFile, ViewState } from '../types';
 import { WASM_URL, VIEWER_FONTS } from '../lib/viewer-assets';
 import { updateMetadata, getMetadata, getAnnotations, patchAnnotations } from '../lib/db';
 import { useReadingTimer } from '../hooks/useReadingTimer';
-import { useTheme } from '../contexts/ThemeContext';
+import { useLibraryStore } from '../store';
+import { formatDay } from '../lib/format';
 import { ANNOTATION_AUTHOR, API_BASE, PDF_LOAD_MODE } from '../config';
 
 const PROGRESS_DEBOUNCE_MS = 1500;
@@ -109,14 +111,20 @@ async function applyAnnotationsToViewer(
   }
 }
 
-export default function ViewerPage() {
-  const { id } = useParams<{ id: string }>();
+export default function Reader() {
+  const { id: bookId } = useParams<{ id: string }>();
+  const { getBook, getAnnotationsByBook, refresh: refreshStore } = useLibraryStore();
+  const book = getBook(bookId ?? '');
+  const id = book?.r2Key; // everything below talks to the Worker by the PDF's key
+  const [showPanel, setShowPanel] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+  const storeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(storeTimerRef.current), []);
   // #/viewer/<id>?page=12 opens at that page instead of the saved position (annotation and quote links use this).
   const [searchParams] = useSearchParams();
   const wantedPageRef = useRef(0);
   wantedPageRef.current = Math.max(0, Math.floor(Number(searchParams.get('page')) || 0));
   const viewerRef = useRef<PDFViewerRef>(null);
-  const { theme } = useTheme();
+  const theme = 'dark' as const; // the whole app is dark
 
   /** The PDF is streamed straight from this URL (HTTP range requests) – it is never downloaded as a whole first. */
   const [pdfSource, setPdfSource] = useState<{ url: string; etag: string | null } | null>(null);
@@ -280,6 +288,9 @@ export default function ViewerPage() {
         }
         if (upserts.size === 0 && deletes.size === 0) markDirty(false);
         else scheduleAnnotationSave();
+        // Let the notes panel and the rest of the app pick up what was just saved.
+        clearTimeout(storeTimerRef.current);
+        storeTimerRef.current = setTimeout(() => void refreshStore(true), 2500);
         return true;
       } catch (err) {
         console.error('Failed to save annotations:', err);
@@ -290,7 +301,7 @@ export default function ViewerPage() {
     };
     flushQueueRef.current = flushQueueRef.current.then(run);
     return flushQueueRef.current;
-  }, [id, markDirty, showStatus, scheduleAnnotationSave]);
+  }, [id, markDirty, showStatus, scheduleAnnotationSave, refreshStore]);
 
   useEffect(() => {
     flushRef.current = flushAnnotations;
@@ -728,13 +739,56 @@ export default function ViewerPage() {
     }
   };
 
+  // Export: the PDF together with its highlights and notes (so it opens with them in any PDF app)
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExport = useCallback(async () => {
+    if (!viewerRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      const registry = await viewerRef.current.registry;
+      const annotation = registry?.getPlugin('annotation')?.provides?.();
+      await annotation?.commit?.()?.toPromise?.(); // make sure pending edits are part of the file
+      await flushAnnotations(); // and in your saved notes
+      const exporter = registry?.getPlugin('export')?.provides?.();
+      if (!exporter?.download) throw new Error("Export isn't available here. Try the download button in the viewer's toolbar.");
+      exporter.download();
+      showStatus({ kind: 'success', message: 'Exported with annotations' });
+    } catch (err) {
+      console.error('Export failed:', err);
+      showStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Export failed' });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, flushAnnotations, showStatus]);
+
+  // Jump to a page from the notes panel
+  const goToPage = useCallback(async (page: number) => {
+    const registry = await viewerRef.current?.registry;
+    registry?.getPlugin('scroll')?.provides?.()?.scrollToPage({ pageNumber: page, behavior: 'smooth' });
+    if (window.innerWidth < 640) setShowPanel(false);
+  }, []);
+
   // ------------------------------------------------------------------ render
+  const notes = book ? getAnnotationsByBook(book.id) : [];
+  const backTo = book ? `/book/${book.id}` : '/library';
+
+  if (!book) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-400 text-lg">Book not found</p>
+          <Link to="/library" className="text-blue-400 mt-4 inline-block hover:text-blue-300">Back to Library</Link>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors">
+      <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-200 dark:border-indigo-800 border-t-indigo-600 dark:border-t-indigo-400 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400 font-medium">Loading document from cloud...</p>
+          <div className="w-12 h-12 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-300 font-medium">Opening {book.title}…</p>
         </div>
       </div>
     );
@@ -742,205 +796,194 @@ export default function ViewerPage() {
 
   if (error || !pdfSource) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors">
-        <div className="text-center max-w-md px-4">
-          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-red-500 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">Failed to Load</h2>
-          <p className="text-gray-500 dark:text-gray-400 mb-6">{error || 'Could not load the PDF document.'}</p>
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-bold text-white mb-2">Couldn’t open this book</h2>
+          <p className="text-gray-400 mb-6">{error || 'Could not load the PDF document.'}</p>
           <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={() => window.location.reload()}
-              className="inline-flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              Try again
-            </button>
-            <Link
-              to="/library"
-              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
-            >
-              Back to Library
-            </Link>
+            <button onClick={() => window.location.reload()} className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-md text-sm font-medium transition-colors">Try again</button>
+            <Link to={backTo} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-sm font-medium transition-colors">Back to book</Link>
           </div>
         </div>
       </div>
     );
   }
 
+  const highlights = notes.filter((a) => a.type === 'highlight');
+  const plain = notes.filter((a) => a.type === 'note');
+
   return (
-    <div
-      className="h-dvh w-full max-w-full flex flex-col bg-gray-100 dark:bg-gray-900 overflow-hidden transition-colors"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-    >
-      {/* Top Bar */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-2 flex items-center justify-between shadow-sm z-10 transition-colors">
-        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          <Link
-            to="/library"
-            onClick={confirmLeave}
-            aria-label="Back to library"
-            className="flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 sm:px-2 py-1.5 rounded-md transition-colors text-xs sm:text-sm font-medium shrink-0"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="hidden sm:inline">Library</span>
+    <div className="h-full w-full max-w-full flex flex-col bg-gray-950 overflow-hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-2 px-2 sm:px-3 py-2 border-b border-gray-800 bg-gray-900 flex-shrink-0 z-20">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+          <Link to={backTo} onClick={confirmLeave} aria-label="Back to book" title="Back to book" className="p-2 rounded-md hover:bg-gray-800 text-gray-400 transition-colors flex-shrink-0">
+            <ArrowLeft className="w-5 h-5" />
           </Link>
-          <div className="h-5 w-px bg-gray-200 dark:bg-gray-700 shrink-0"></div>
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-500 dark:text-red-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z" />
-            </svg>
-            <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 truncate" title={docName}>
-              {docName}
-            </span>
-            {isDirty && (
-              <span className="shrink-0 text-[10px] sm:text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">
-                Unsaved
-              </span>
-            )}
+          <div className="min-w-0">
+            <h1 className="text-sm font-medium text-white truncate max-w-[40vw] sm:max-w-[320px] lg:max-w-none" title={docName}>{docName}</h1>
+            <p className="text-xs text-gray-500 hidden sm:block truncate">{book.genre}{totalPages > 0 ? ` · ${totalPages} pages` : ''}</p>
           </div>
+          {isDirty && <span className="shrink-0 text-[10px] sm:text-xs font-medium text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded">Unsaved</span>}
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           <div aria-live="polite">
             {saveStatus?.kind === 'success' && (
-              <div className="flex items-center gap-1 text-green-600 bg-green-50 dark:bg-green-900/20 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              <div className="flex items-center gap-1 text-green-300 bg-green-500/10 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in">
+                <Check className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{saveStatus.message === 'Saved' ? 'Saved!' : saveStatus.message}</span>
               </div>
             )}
             {saveStatus?.kind === 'error' && (
-              <div
-                className="flex items-center gap-1 text-red-600 bg-red-50 dark:bg-red-900/20 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in max-w-[10rem] sm:max-w-xs"
-                title={saveStatus.message}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                {/* Visible on mobile too – the old version hid the error text below the sm breakpoint */}
+              <div className="flex items-center gap-1 text-red-300 bg-red-500/10 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in max-w-[10rem] sm:max-w-xs" title={saveStatus.message}>
+                <X className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">{saveStatus.message}</span>
               </div>
             )}
           </div>
 
-          <button
-            onClick={handleRefresh}
-            disabled={isSyncing || isSaving}
-            title="Refresh – pull the latest annotations & progress from your other devices"
-            aria-label="Refresh and sync"
-            className="flex items-center gap-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-60 px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors shadow-sm"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isSyncing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Refresh'}</span>
+          <button onClick={handleRefresh} disabled={isSyncing || isSaving} title="Refresh: pull the latest annotations and progress from your other devices" aria-label="Refresh and sync"
+            className="p-2 rounded-md text-gray-300 hover:bg-gray-800 disabled:opacity-50 transition-colors">
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
-
-          <button
-            onClick={handleSave}
-            disabled={isSaving || isSyncing}
-            title="Save annotations now (they also save automatically) – Ctrl/⌘+S"
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors shadow-sm"
-          >
-            {isSaving ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span className="hidden sm:inline">Saving...</span>
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                </svg>
-                <span className="hidden sm:inline">Save</span>
-              </>
-            )}
+          <button onClick={() => void handleExport()} disabled={isExporting} title="Export this PDF with your highlights and notes" aria-label="Export PDF with annotations"
+            className="p-2 rounded-md text-gray-300 hover:bg-gray-800 disabled:opacity-50 transition-colors">
+            <FileDown className="w-4 h-4" />
+          </button>
+          <button onClick={handleSave} disabled={isSaving || isSyncing} title="Save now (annotations also save automatically): Ctrl/⌘+S" aria-label="Save"
+            className="p-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors">
+            {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
+          </button>
+          <button onClick={() => setShowPanel((v) => !v)} aria-pressed={showPanel} title="Notes and highlights"
+            className={`p-2 rounded-md transition-colors flex items-center gap-2 ${showPanel ? 'bg-blue-500/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+            {showPanel ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+            <span className="text-xs hidden lg:inline">{notes.length} notes</span>
           </button>
         </div>
       </div>
 
       {/* Resume / progress banners */}
       {resumeState === 'resuming' && resumeTarget && (
-        <div className="bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-800 px-4 py-2 flex items-center justify-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
-          Resuming from page {resumeTarget}
-          {totalPages > 0 && <span className="text-indigo-500 dark:text-indigo-400">of {totalPages}</span>}
+        <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 text-center text-sm text-blue-200">
+          Opening at page {resumeTarget}{totalPages > 0 && <span className="text-blue-300/70"> of {totalPages}</span>}
         </div>
       )}
       {resumeState === 'failed' && resumeTarget && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex flex-wrap items-center justify-center gap-3 text-sm text-amber-800 dark:text-amber-200">
-          <span>Couldn't jump to your last page ({resumeTarget}). Progress saving is paused so it isn't overwritten.</span>
-          <button onClick={() => retryResumeRef.current?.()} className="font-medium underline">
-            Go to page {resumeTarget}
-          </button>
-          <button onClick={() => startTrackingRef.current?.()} className="font-medium underline">
-            Start from here
-          </button>
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex flex-wrap items-center justify-center gap-3 text-sm text-amber-200">
+          <span>Couldn’t jump to page {resumeTarget}. Progress saving is paused so it isn’t overwritten.</span>
+          <button onClick={() => retryResumeRef.current?.()} className="font-medium underline">Go to page {resumeTarget}</button>
+          <button onClick={() => startTrackingRef.current?.()} className="font-medium underline">Start from here</button>
         </div>
       )}
       {remoteProgress && (
-        <div className="bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-800 px-4 py-2 flex flex-wrap items-center justify-center gap-3 text-sm text-indigo-700 dark:text-indigo-300">
+        <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex flex-wrap items-center justify-center gap-3 text-sm text-blue-200">
           <span>Your other device is on page {remoteProgress}.</span>
           <button onClick={goToRemotePage} className="font-medium underline">Go to page {remoteProgress}</button>
           <button onClick={() => setRemoteProgress(null)} className="font-medium underline opacity-70">Dismiss</button>
         </div>
       )}
       {annotationsWarning && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 text-center text-sm text-amber-800 dark:text-amber-200">
-          Couldn't load your saved annotations. Tap Refresh to try again – new annotations will still be saved.
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-center text-sm text-amber-200">
+          Couldn’t load your saved annotations. Tap Refresh to try again. New annotations will still be saved.
         </div>
       )}
       {progressWarning && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 text-center text-sm text-amber-800 dark:text-amber-200">
-          Couldn't load your saved progress, so progress saving is off for this session.
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-center text-sm text-amber-200">
+          Couldn’t load your saved progress, so progress saving is off for this session.
         </div>
       )}
 
-      {/* PDF Viewer */}
-      <div className="w-full flex-1 min-h-0">
-        <PDFViewer
-          ref={viewerRef}
-          style={{ width: '100%', height: '100%' }}
-          config={{
-            // Stream the PDF from the worker URL (HTTP range requests) instead of handing the viewer a finished
-            // blob. If-Match pins every range request to the version we checked, so a file replaced mid-read
-            // fails cleanly (412) instead of mixing two versions.
-            documentManager: {
-              initialDocuments: [
-                {
-                  url: pdfSource.url,
-                  name: docName || 'Document',
-                  mode: PDF_LOAD_MODE,
-                  requestOptions: pdfSource.etag ? { headers: { 'If-Match': pdfSource.etag } } : undefined,
-                },
+      <div className="flex-1 flex min-h-0 relative">
+        {/* PDF viewer */}
+        <div className="flex-1 min-w-0 min-h-0">
+          <PDFViewer
+            ref={viewerRef}
+            style={{ width: '100%', height: '100%' }}
+            config={{
+              // Stream the PDF from the worker URL (HTTP range requests) instead of handing the viewer a finished
+              // blob. If-Match pins every range request to the version we checked, so a file replaced mid-read
+              // fails cleanly (412) instead of mixing two versions.
+              documentManager: {
+                initialDocuments: [
+                  {
+                    url: pdfSource.url,
+                    name: docName || 'Document',
+                    mode: PDF_LOAD_MODE,
+                    requestOptions: pdfSource.etag ? { headers: { 'If-Match': pdfSource.etag } } : undefined,
+                  },
+                ],
+              },
+              wasmUrl: WASM_URL,
+              fontFallback: null, // PDFs embed their own fonts, so no fallback fonts to host or download
+              fonts: VIEWER_FONTS,
+              stamp: { manifests: [] }, // don't fetch the default stamp library from a CDN
+              theme: { preference: theme, dark: { accent: { primary: '#3b82f6' } } },
+              annotations: { annotationAuthor: ANNOTATION_AUTHOR },
+              disabledCategories: [
+                'annotation-shape',
+                'insert',
+                'form',
+                'redaction',
+                'document-open',
+                'document-close',
+                'document-print',
+                'document-protect',
+                'security',
               ],
-            },
-            wasmUrl: WASM_URL,
-            fontFallback: null, // PDFs embed their own fonts – no fallback fonts to host or download
-            fonts: VIEWER_FONTS,
-            stamp: { manifests: [] }, // don't fetch the default stamp library from a CDN
-            theme: { preference: theme },
-            annotations: { annotationAuthor: ANNOTATION_AUTHOR },
-            disabledCategories: [
-              'annotation-shape',
-              'insert',
-              'form',
-              'redaction',
-              'document-open',
-              'document-close',
-              'document-print',
-              'document-export',
-              'document-protect',
-              'security',
-            ],
-          }}
-          onReady={() => setViewerReady(true)}
-        />
+            }}
+            onReady={() => setViewerReady(true)}
+          />
+        </div>
+
+        {/* Notes and highlights for this book */}
+        {showPanel && (
+          <aside className="fixed sm:static inset-0 sm:inset-auto sm:w-80 border-l border-gray-800 bg-gray-900 flex flex-col overflow-hidden flex-shrink-0 z-30" aria-label="Notes and highlights">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-shrink-0">
+              <h2 className="text-sm font-semibold text-white">Notes &amp; highlights</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-md">{notes.length}</span>
+                <button onClick={() => setShowPanel(false)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400" aria-label="Close panel"><X className="w-4 h-4" /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {highlights.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Highlighter className="w-3 h-3" />Highlights ({highlights.length})</h3>
+                  <div className="space-y-2">
+                    {[...highlights].sort((a, b) => a.page - b.page).map((h) => (
+                      <button key={h.id} onClick={() => void goToPage(h.page)} className="w-full text-left p-2.5 rounded-lg border bg-yellow-500/5 border-yellow-500/10 hover:border-yellow-500/30 transition-colors">
+                        <p className="text-xs text-yellow-100/80 italic line-clamp-3">“{h.content}”</p>
+                        {h.comment && <p className="text-xs text-gray-300 mt-1.5 line-clamp-3">{h.comment}</p>}
+                        <p className="text-[10px] text-gray-500 mt-1.5">Page {h.page} · {formatDay(h.updatedAt)}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {plain.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><StickyNote className="w-3 h-3" />Notes ({plain.length})</h3>
+                  <div className="space-y-2">
+                    {[...plain].sort((a, b) => a.page - b.page).map((n) => (
+                      <button key={n.id} onClick={() => void goToPage(n.page)} className="w-full text-left p-2.5 rounded-lg border bg-purple-500/5 border-purple-500/10 hover:border-purple-500/30 transition-colors">
+                        <p className="text-xs text-gray-300 line-clamp-4 whitespace-pre-line">{n.content}</p>
+                        <p className="text-[10px] text-gray-500 mt-1.5">Page {n.page} · {formatDay(n.updatedAt)}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {notes.length === 0 && (
+                <div className="text-center py-12">
+                  <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center mx-auto mb-3"><StickyNote className="w-6 h-6 text-gray-600" /></div>
+                  <p className="text-gray-500 text-sm">No annotations yet</p>
+                  <p className="text-gray-600 text-xs mt-1">Select text in the PDF to highlight it, or use the toolbar to add a note.</p>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingStats, StorageOverview, TrashEntry, VersionInfo } from '../types';
+import type { CollectionRecord, DocMeta, UserQuote } from '../types/api';
+import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingLog, StorageOverview, TrashEntry, VersionInfo } from '../types';
 import type { StorageBackend, RequestOptions, VersionedPdf } from './storage-interface';
 export { ConflictError } from './storage-interface';
 import { RemoteStorageBackend } from './remote-storage';
@@ -37,9 +38,14 @@ export const listTrash = (opts?: RequestOptions): Promise<TrashEntry[]> => stora
 export const restoreFromTrash = (trashId: string, opts?: RequestOptions): Promise<string> => storage.restoreFromTrash(trashId, opts);
 export const purgeTrash = (trashId?: string, opts?: RequestOptions): Promise<void> => storage.purgeTrash(trashId, opts);
 export const moveDocument = (from: string, to: string, opts?: RequestOptions): Promise<string> => storage.moveDocument(from, to, opts);
-export const setDocState = (id: string, change: { favorite?: boolean; tags?: string[] }, opts?: RequestOptions) =>
+export const setDocState = (id: string, change: { favorite?: boolean; tags?: string[]; meta?: DocMeta }, opts?: RequestOptions) =>
   storage.setDocState(id, change, opts);
-export const getReading = (opts?: RequestOptions): Promise<ReadingStats> => storage.getReading(opts);
+export const getQuotes = (opts?: RequestOptions): Promise<UserQuote[]> => storage.getQuotes(opts);
+export const saveQuotes = (quotes: UserQuote[], opts?: RequestOptions): Promise<UserQuote[]> => storage.saveQuotes(quotes, opts);
+export const getCollections = (opts?: RequestOptions): Promise<CollectionRecord[]> => storage.getCollections(opts);
+export const saveCollections = (collections: CollectionRecord[], opts?: RequestOptions): Promise<CollectionRecord[]> =>
+  storage.saveCollections(collections, opts);
+export const getReading = (opts?: RequestOptions): Promise<ReadingLog> => storage.getReading(opts);
 export const logReading = (id: string, seconds: number, day: string, opts?: { keepalive?: boolean }): Promise<void> =>
   storage.logReading(id, seconds, day, opts);
 export const setReadingGoal = (minutes: number, opts?: RequestOptions): Promise<void> => storage.setReadingGoal(minutes, opts);
