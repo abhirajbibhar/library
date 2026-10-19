@@ -2,7 +2,6 @@ import { useSyncExternalStore } from 'react';
 import {
   getAllAnnotations,
   getAnnotations,
-  getCollections,
   getQuotes,
   saveQuotes,
   getLibrary,
@@ -10,7 +9,6 @@ import {
   getStorage,
   moveDocument,
   patchAnnotations,
-  saveCollections,
   setDocState,
   setReadingGoal,
   trashDocument,
@@ -19,11 +17,11 @@ import { coverUrl } from '../lib/cover';
 import { bookIdFor, formatSize, localDay, progressPct, readingStreak } from '../lib/format';
 export { bookIdFor };
 import { keyOf } from '../lib/names';
-import type { Annotation, AnnotationSummary, Book, Collection, CollectionRecord, DocMeta, LibraryStats, PdfDocument, ReadingLog, StorageOverview, UserQuote } from '../types';
+import type { Annotation, AnnotationSummary, Book, DocMeta, FolderInfo, LibraryStats, PdfDocument, ReadingLog, StorageOverview, UserQuote } from '../types';
 
 /**
  * One store for the whole app. Everything here comes from the Worker (your R2 bucket): books are your PDFs,
- * annotations are the highlights and notes saved while reading, collections are your own groups.
+ * annotations are the highlights and notes saved while reading, each folder is a collection.
  * Pages call `useLibraryStore()` and use the data and actions below.
  */
 
@@ -32,7 +30,7 @@ interface Data {
   docs: PdfDocument[];
   books: Book[];
   annotations: Annotation[];
-  collections: Collection[];
+  folders: FolderInfo[];
   quotes: UserQuote[];
   reading: ReadingLog | null;
   storage: StorageOverview | null;
@@ -40,7 +38,7 @@ interface Data {
   loading: boolean;
   error: string | null;
   searchQuery: string;
-  activeFilter: string; // 'all' or a collection id
+  activeFilter: string; // 'all', 'fav' or 'folder:<name>'
   notice: string | null;
 }
 
@@ -59,12 +57,6 @@ interface Actions {
   // annotations
   updateAnnotation: (id: string, change: { comment: string }) => Promise<void>;
   deleteAnnotation: (id: string) => Promise<void>;
-  // collections
-  addCollection: (c: { name: string; description?: string; icon?: string; color?: string; bookIds?: string[] }) => Promise<string>;
-  updateCollection: (id: string, change: Partial<Pick<Collection, 'name' | 'description' | 'icon' | 'color'>>) => Promise<void>;
-  deleteCollection: (id: string) => Promise<void>;
-  addBookToCollection: (collectionId: string, bookId: string) => Promise<void>;
-  removeBookFromCollection: (collectionId: string, bookId: string) => Promise<void>;
   // quotes you picked (saved to _library/quotes.json)
   saveQuote: (q: Omit<UserQuote, 'id' | 'addedAt'> & { id?: string }) => Promise<void>;
   deleteQuote: (id: string) => Promise<void>;
@@ -79,9 +71,8 @@ interface Actions {
 
 export type LibraryStore = Data & Actions;
 
-let records: CollectionRecord[] = []; // collections exactly as stored (PDF keys, including trashed books)
 let state = {
-  docs: [], books: [], annotations: [], collections: [], quotes: [], reading: null, storage: null,
+  docs: [], books: [], annotations: [], folders: [], quotes: [], reading: null, storage: null,
   loaded: false, loading: false, error: null, searchQuery: '', activeFilter: 'all', notice: null,
 } as unknown as LibraryStore;
 const listeners = new Set<() => void>();
@@ -97,7 +88,7 @@ const subscribe = (l: () => void) => {
 };
 
 // ---------------------------------------------------------------- mapping
-function toBook(d: PdfDocument, collectionIds: string[]): Book {
+function toBook(d: PdfDocument): Book {
   return {
     id: bookIdFor(d.id),
     r2Key: d.id,
@@ -122,7 +113,6 @@ function toBook(d: PdfDocument, collectionIds: string[]): Book {
     favorite: d.favorite,
     tags: d.tags,
     readingSeconds: d.readingTime,
-    collectionIds,
   };
 }
 
@@ -143,24 +133,21 @@ function toAnnotation(a: AnnotationSummary): Annotation {
   };
 }
 
-/** Rebuilds books and collections from the raw records (after a load or any change to them). */
-function derive(docs: PdfDocument[]): Pick<Data, 'docs' | 'books' | 'collections'> {
-  const keyToId = new Map(docs.map((d) => [d.id, bookIdFor(d.id)]));
-  const memberOf = new Map<string, string[]>();
-  for (const r of records) for (const k of r.bookIds) memberOf.set(k, [...(memberOf.get(k) ?? []), r.id]);
-  return {
-    docs,
-    books: docs.map((d) => toBook(d, memberOf.get(d.id) ?? [])),
-    collections: records.map((r) => ({
-      id: r.id,
-      name: r.name,
-      description: r.description,
-      icon: r.icon,
-      color: r.color,
-      createdAt: r.createdAt,
-      bookIds: r.bookIds.map((k) => keyToId.get(k)).filter((x): x is string => !!x),
-    })),
-  };
+/** Books, and one group per folder (each folder is a collection). */
+function derive(docs: PdfDocument[]): Pick<Data, 'docs' | 'books' | 'folders'> {
+  const books = docs.map(toBook);
+  const byFolder = new Map<string, Book[]>();
+  for (const b of books) byFolder.set(b.folder, [...(byFolder.get(b.folder) ?? []), b]);
+  const folders: FolderInfo[] = [...byFolder.entries()]
+    .map(([name, list]) => ({
+      name,
+      count: list.length,
+      finished: list.filter((b) => b.progress >= 100).length,
+      progress: Math.round(list.reduce((n, b) => n + b.progress, 0) / list.length),
+      size: list.reduce((n, b) => n + b.size, 0),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return { docs, books, folders };
 }
 
 // ---------------------------------------------------------------- loading
@@ -169,15 +156,13 @@ let lastRefresh = 0;
 async function refresh(silent = false): Promise<void> {
   if (!silent) patch({ loading: true });
   try {
-    const [docs, anns, cols, reading, storage, quotes] = await Promise.all([
+    const [docs, anns, reading, storage, quotes] = await Promise.all([
       getLibrary(),
       getAllAnnotations().catch(() => null),
-      getCollections().catch(() => null),
       getReading().catch(() => null),
       getStorage().catch(() => null),
       getQuotes().catch(() => null),
     ]);
-    if (cols) records = cols;
     lastRefresh = Date.now();
     patch({
       ...derive(docs),
@@ -213,23 +198,6 @@ function persistQuotes(next: UserQuote[]): Promise<void> {
     patch({ quotes: previous, notice: 'Couldn’t save your quotes. Check your connection.' });
   });
   return quoteChain as Promise<void>;
-}
-
-let saveChain: Promise<unknown> = Promise.resolve();
-/** Saves collections one request at a time so quick successive edits can't overwrite each other. */
-function persistCollections(): Promise<void> {
-  const snapshot = records;
-  saveChain = saveChain.then(() => saveCollections(snapshot)).catch((err) => {
-    console.error(err);
-    patch({ notice: 'Couldn’t save your collections. Check your connection.' });
-  });
-  return saveChain as Promise<void>;
-}
-
-function editCollections(change: (r: CollectionRecord[]) => CollectionRecord[]): Promise<void> {
-  records = change(records);
-  patch(derive(state.docs));
-  return persistCollections();
 }
 
 const actions: Actions = {
@@ -338,31 +306,6 @@ const actions: Actions = {
     await refresh(true);
   },
 
-  addCollection: async (c) => {
-    const id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const keys = (c.bookIds ?? []).map((bid) => bookById(bid)?.r2Key).filter((k): k is string => !!k);
-    await editCollections((r) => [
-      ...r,
-      { id, name: c.name.trim(), description: c.description ?? '', icon: c.icon ?? '📚', color: c.color ?? '#3b82f6', bookIds: keys, createdAt: new Date().toISOString() },
-    ]);
-    return id;
-  },
-
-  updateCollection: (id, change) => editCollections((r) => r.map((c) => (c.id === id ? { ...c, ...change } : c))),
-  deleteCollection: (id) => editCollections((r) => r.filter((c) => c.id !== id)),
-
-  addBookToCollection: async (collectionId, bookId) => {
-    const key = bookById(bookId)?.r2Key;
-    if (!key) return;
-    await editCollections((r) => r.map((c) => (c.id === collectionId && !c.bookIds.includes(key) ? { ...c, bookIds: [...c.bookIds, key] } : c)));
-  },
-
-  removeBookFromCollection: async (collectionId, bookId) => {
-    const key = bookById(bookId)?.r2Key;
-    if (!key) return;
-    await editCollections((r) => r.map((c) => (c.id === collectionId ? { ...c, bookIds: c.bookIds.filter((k) => k !== key) } : c)));
-  },
-
   saveQuote: async (q) => {
     const id = q.id ?? `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const existing = state.quotes.find((x) => x.id === id);
@@ -409,7 +352,7 @@ const actions: Actions = {
 
 state = { ...state, ...actions } as LibraryStore;
 
-/** `const { books, addCollection } = useLibraryStore()` – the same shape the pages were designed with. */
+/** `const { books, folders } = useLibraryStore()` – the same shape the pages were designed with. */
 export function useLibraryStore(): LibraryStore {
   return useSyncExternalStore(subscribe, () => state);
 }

@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { Quote, getQuoteOfDay, getRandomQuote } from '../data/quotes';
 import { useLibraryStore } from '../store';
 import { RefreshCw, Quote as QuoteIcon, BookOpen } from 'lucide-react';
@@ -40,7 +39,7 @@ export default function QuoteSection() {
           <div className="flex items-center gap-2">
             <QuoteIcon className="w-5 h-5 text-purple-400" />
             <h3 className="text-sm font-semibold text-purple-300 uppercase tracking-wider">
-              {mine.length ? 'From your quotes' : 'Daily Inspiration'}
+              <span className="sr-only">Daily quote</span>
             </h3>
           </div>
           <button
@@ -92,7 +91,6 @@ export default function QuoteSection() {
         </div>
       </div>
 
-      <Link to="/quotes" className="absolute bottom-3 right-4 text-xs text-purple-300/70 hover:text-purple-200 underline z-10">{mine.length ? 'Manage quotes' : 'Save your own quotes'}</Link>
 
       {/* Bottom decorative line */}
       <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-purple-500/50 to-transparent" />

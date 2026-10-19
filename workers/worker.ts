@@ -235,11 +235,6 @@ export default {
         if (request.method === 'PUT') return await putQuotes(request, env, cors);
       }
 
-      if (path === '/api/collections') {
-        if (request.method === 'GET') return await getCollections(env, cors);
-        if (request.method === 'PUT') return await putCollections(request, env, cors);
-      }
-
       if (path === '/api/reading') {
         if (request.method === 'GET') return await getReading(env, cors);
         if (request.method === 'POST') return await logReading(request, env, cors);
@@ -414,7 +409,6 @@ const COVERS_FOLDER = '_covers';
 const LIBRARY_FOLDER = '_library';
 const STATE_KEY = `${LIBRARY_FOLDER}/state.json`;
 const READING_KEY = `${LIBRARY_FOLDER}/reading.json`;
-const COLLECTIONS_KEY = `${LIBRARY_FOLDER}/collections.json`;
 const QUOTES_KEY = `${LIBRARY_FOLDER}/quotes.json`;
 const TRASH_DAYS = 30;
 const MAX_COVER_BYTES = 400 * 1024;
@@ -434,15 +428,6 @@ interface DocState {
   tags?: string[];
   meta?: DocMeta;
 }
-interface CollectionRecord {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  color: string;
-  bookIds: string[]; // pdf keys
-  createdAt: string;
-}
 /** A quote the person picked (from an annotation or typed in) with its attribution. */
 interface QuoteRecord {
   id: string;
@@ -458,10 +443,6 @@ interface QuoteRecord {
 interface QuotesFile {
   version: 1;
   quotes: QuoteRecord[];
-}
-interface CollectionsFile {
-  version: 1;
-  collections: CollectionRecord[];
 }
 interface StateFile {
   version: 1;
@@ -489,7 +470,6 @@ interface TrashItem {
 const emptyState = (): StateFile => ({ version: 1, docs: {} });
 const emptyReading = (): ReadingFile => ({ version: 1, days: {}, docs: {}, dayDocs: {} });
 const emptyQuotes = (): QuotesFile => ({ version: 1, quotes: [] });
-const emptyCollections = (): CollectionsFile => ({ version: 1, collections: [] });
 const coverKey = (key: string) => `${COVERS_FOLDER}/${key}.jpg`;
 
 /** A DELETE only goes through when the caller names exactly what it wants gone (guards against stray requests). */
@@ -648,48 +628,8 @@ async function setReadingGoal(request: Request, env: Env, cors: Record<string, s
   return json({ success: true, goalMinutes: goal }, cors);
 }
 
-// ---- collections (user-made groups of books, independent of folders)
-
 const validBookKey = (k: unknown): k is string =>
   typeof k === 'string' && k.length <= 300 && k.includes('/') && !k.includes('..') && !k.includes('\\') && /\.pdf$/i.test(k) && !isHiddenFolder(k.split('/')[0]);
-
-function sanitizeCollections(value: unknown): CollectionRecord[] {
-  if (!Array.isArray(value)) throw new HttpError(400, 'collections must be an array');
-  const seen = new Set<string>();
-  const out: CollectionRecord[] = [];
-  for (const raw of value.slice(0, 200)) {
-    const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-    const id = clipStr(c.id, 60);
-    const name = clipStr(c.name, 60);
-    if (!id || !name || seen.has(id)) continue;
-    seen.add(id);
-    const ids = Array.isArray(c.bookIds) ? [...new Set(c.bookIds.filter(validBookKey))].slice(0, 2000) : [];
-    out.push({
-      id,
-      name,
-      description: clipStr(c.description, 300),
-      icon: clipStr(c.icon, 8),
-      color: clipStr(c.color, 40),
-      bookIds: ids,
-      createdAt: toIso(c.createdAt),
-    });
-  }
-  return out;
-}
-
-async function getCollections(env: Env, cors: Record<string, string>): Promise<Response> {
-  const { data } = await readJsonFile(COLLECTIONS_KEY, env, emptyCollections);
-  return json({ collections: data.collections }, cors);
-}
-
-async function putCollections(request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
-  const body = (await request.json().catch(() => null)) as { collections?: unknown } | null;
-  const collections = sanitizeCollections(body?.collections);
-  await mutateJsonFile(COLLECTIONS_KEY, env, emptyCollections, (f) => {
-    f.collections = collections;
-  });
-  return json({ success: true, collections }, cors);
-}
 
 // ---- quotes (a plain JSON file of passages you chose, with attribution)
 
@@ -954,9 +894,6 @@ async function moveDocument(request: Request, env: Env, cors: Record<string, str
   await mutateJsonFile(QUOTES_KEY, env, emptyQuotes, (f) => {
     for (const q of f.quotes) if (q.bookKey === from) q.bookKey = to;
   }).catch((e) => console.error('quotes move failed', e));
-  await mutateJsonFile(COLLECTIONS_KEY, env, emptyCollections, (f) => {
-    for (const c of f.collections) c.bookIds = c.bookIds.map((k) => (k === from ? to : k));
-  }).catch((e) => console.error('collections move failed', e));
   await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
     if (r.docs[from] !== undefined) r.docs[to] = r.docs[from];
     delete r.docs[from];

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Target, HardDrive, Folder, Download, Image as ImageIcon, Trash2, Smartphone, LogOut } from 'lucide-react';
+import { Target, HardDrive, Folder, Download, Image as ImageIcon, Trash2, Smartphone, LogOut, ChevronRight } from 'lucide-react';
 import { useLibraryStore } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
 import { generateCoverFor } from '../lib/cover';
@@ -77,7 +77,7 @@ export default function Settings() {
       </Section>
 
       {/* Folders */}
-      <Section icon={<Folder className="w-5 h-5 text-blue-400" />} tint="bg-blue-500/10" title="Folders" subtitle="Each folder in your bucket is a group in the library">
+      <Section icon={<Folder className="w-5 h-5 text-blue-400" />} tint="bg-blue-500/10" title="Folders">
         {folders.length === 0 ? (
           <p className="text-sm text-gray-500">No folders yet. Add a book and choose “Create new folder”.</p>
         ) : (
@@ -128,27 +128,38 @@ export default function Settings() {
         </div>
       </Section>
 
-      {/* App */}
-      <Section icon={<Smartphone className="w-5 h-5 text-cyan-400" />} tint="bg-cyan-500/10" title="App" subtitle="Install it for a full-screen icon on your home screen">
+      {/* App and account */}
+      <section className="bg-gray-900 rounded-md border border-gray-800 divide-y divide-gray-800">
         {install ? (
-          <button onClick={() => void install.prompt().then(() => setInstall(null))} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-sm font-medium transition-colors">Install app</button>
+          <button onClick={() => void install.prompt().then(() => setInstall(null))} className="w-full flex items-center gap-4 p-4 sm:p-5 text-left hover:bg-gray-800/60 transition-colors rounded-t-md">
+            <span className="w-10 h-10 rounded-md bg-cyan-500/10 flex items-center justify-center shrink-0"><Smartphone className="w-5 h-5 text-cyan-400" /></span>
+            <span className="flex-1 min-w-0"><span className="block text-sm font-medium text-white">Install app</span><span className="block text-xs text-gray-400">Add it to your home screen for a full-screen start</span></span>
+            <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />
+          </button>
         ) : (
-          <p className="text-sm text-gray-400">Use your browser’s menu: “Install app” or “Add to Home Screen”.</p>
+          <div className="flex items-center gap-4 p-4 sm:p-5">
+            <span className="w-10 h-10 rounded-md bg-cyan-500/10 flex items-center justify-center shrink-0"><Smartphone className="w-5 h-5 text-cyan-400" /></span>
+            <span className="flex-1 min-w-0"><span className="block text-sm font-medium text-white">Install app</span><span className="block text-xs text-gray-400">In your browser menu, choose “Install app” or “Add to Home Screen”</span></span>
+          </div>
         )}
-        <a href={LOGOUT_URL} className="inline-flex items-center gap-2 mt-4 text-sm text-gray-400 hover:text-white"><LogOut className="w-4 h-4" />Log out</a>
-      </Section>
+        <a href={LOGOUT_URL} className="flex items-center gap-4 p-4 sm:p-5 hover:bg-red-500/5 transition-colors rounded-b-md">
+          <span className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center shrink-0"><LogOut className="w-5 h-5 text-red-400" /></span>
+          <span className="flex-1 text-sm font-medium text-red-300">Log out</span>
+          <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />
+        </a>
+      </section>
       {dialog}
     </div>
   );
 }
 
-function Section({ icon, tint, title, subtitle, children }: { icon: React.ReactNode; tint: string; title: string; subtitle: string; children: React.ReactNode }) {
+function Section({ icon, tint, title, subtitle, children }: { icon: React.ReactNode; tint: string; title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-gray-900 rounded-md border border-gray-800 overflow-hidden">
+    <section className="bg-gray-900 rounded-md border border-gray-800">
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-md ${tint} flex items-center justify-center`}>{icon}</div>
-          <div><h2 className="text-lg font-semibold text-white">{title}</h2><p className="text-xs text-gray-400">{subtitle}</p></div>
+          <div><h2 className="text-lg font-semibold text-white">{title}</h2>{subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}</div>
         </div>
       </div>
       <div className="p-6">{children}</div>

@@ -1,5 +1,5 @@
 import type { DocMeta } from '../types/api';
-import type { CollectionRecord, UserQuote } from '../types/api';
+import type { UserQuote } from '../types/api';
 import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingLog, StorageOverview, TrashEntry, VersionInfo } from '../types';
 
 export interface RequestOptions {
@@ -46,9 +46,6 @@ export interface StorageBackend {
   setDocState(id: string, change: { favorite?: boolean; tags?: string[]; meta?: DocMeta }, opts?: RequestOptions): Promise<{ favorite: boolean; tags: string[]; meta: DocMeta }>;
   getQuotes(opts?: RequestOptions): Promise<UserQuote[]>;
   saveQuotes(quotes: UserQuote[], opts?: RequestOptions): Promise<UserQuote[]>;
-  getCollections(opts?: RequestOptions): Promise<CollectionRecord[]>;
-  /** Replaces the whole list of collections (small, so the client sends it all). */
-  saveCollections(collections: CollectionRecord[], opts?: RequestOptions): Promise<CollectionRecord[]>;
   getReading(opts?: RequestOptions): Promise<ReadingLog>;
   logReading(id: string, seconds: number, day: string, opts?: { keepalive?: boolean }): Promise<void>;
   setReadingGoal(minutes: number, opts?: RequestOptions): Promise<void>;

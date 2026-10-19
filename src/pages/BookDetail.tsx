@@ -10,7 +10,7 @@ import { Play, Star, Calendar, FileText, Globe, Hash, Highlighter, StickyNote, C
 export default function BookDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getBook, getAnnotationsByBook, updateBookDetails, toggleFavorite, collections, addBookToCollection, removeBookFromCollection } = useLibraryStore();
+  const { getBook, getAnnotationsByBook, updateBookDetails, toggleFavorite } = useLibraryStore();
   const [editing, setEditing] = useState(false);
   const { menuFor, dialog } = useBookActions((c) => {
     if (c.kind === 'doc-removed') navigate('/library', { replace: true });
@@ -118,24 +118,6 @@ export default function BookDetail() {
         )}
       </div>
 
-      {/* Collections */}
-      {collections.length > 0 && (
-        <div className="bg-gray-900 rounded-md border border-gray-800 p-6">
-          <h2 className="text-lg font-semibold text-white mb-3">Collections</h2>
-          <div className="flex flex-wrap gap-2">
-            {collections.map(c => {
-              const inIt = book.collectionIds.includes(c.id);
-              return (
-                <button key={c.id} aria-pressed={inIt} onClick={() => void (inIt ? removeBookFromCollection(c.id, book.id) : addBookToCollection(c.id, book.id))}
-                  className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${inIt ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
-                  {c.icon} {c.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Annotations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <AnnotationCard icon={<Highlighter className="w-5 h-5 text-yellow-400" />} title="Highlights" count={highlights.length} items={highlights.slice(0, 2).map(h => h.content)} color="yellow" />
@@ -187,13 +169,14 @@ function EditDetails({ book, onClose, onSave }: { book: { author: string; descri
   );
 }
 
+/** Icon and value. The word label only appears from the sm breakpoint up, and is a tooltip/screen-reader label before that. */
 function MetaItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className="text-gray-500">{icon}</span>
+    <div className="flex items-center gap-2 min-w-0" title={label}>
+      <span className="text-gray-500 shrink-0" aria-hidden="true">{icon}</span>
       <div className="min-w-0">
-        <p className="text-xs text-gray-500">{label}</p>
-        <p className="text-sm text-white font-medium truncate">{value}</p>
+        <p className="text-xs text-gray-500 hidden sm:block">{label}</p>
+        <p className="text-sm text-white font-medium truncate"><span className="sr-only sm:hidden">{label}: </span>{value}</p>
       </div>
     </div>
   );
@@ -203,14 +186,14 @@ function AnnotationCard({ icon, title, count, items, color }: { icon: React.Reac
   const borderColors: Record<string, string> = { yellow: 'border-yellow-500/20', purple: 'border-purple-500/20' };
   return (
     <div className={`bg-gray-900 rounded-xl border ${borderColors[color]} p-4`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">{icon}<span className="text-sm font-medium text-white">{title}</span></div>
-        <span className="text-xs text-gray-500">{count}</span>
+      <div className="flex items-center justify-between mb-3" title={title}>
+        <div className="flex items-center gap-2" aria-hidden="true">{icon}</div>
+        <span className="text-sm font-semibold text-white"><span className="sr-only">{title}: </span>{count}</span>
       </div>
       {items.length > 0 ? (
         <div className="space-y-2">{items.map((item, i) => <p key={i} className="text-xs text-gray-400 line-clamp-2 italic">“{item}”</p>)}</div>
       ) : (
-        <p className="text-xs text-gray-600">No {title.toLowerCase()} yet</p>
+        <p className="text-xs text-gray-600">None yet</p>
       )}
     </div>
   );

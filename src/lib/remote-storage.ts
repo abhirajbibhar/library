@@ -1,5 +1,5 @@
 import { ConflictError, type StorageBackend, type RequestOptions, type VersionedPdf } from './storage-interface';
-import type { CollectionRecord, DocMeta, UserQuote } from '../types/api';
+import type { DocMeta, UserQuote } from '../types/api';
 import type { AnnotationOp, AnnotationsFile, AnnotationSummary, PdfDocument, ReadingProgress, ReadingLog, StorageOverview, TrashEntry, VersionInfo } from '../types';
 import { API_BASE } from '../config';
 
@@ -172,24 +172,6 @@ export class RemoteStorageBackend implements StorageBackend {
     });
     if (!res.ok) await fail(res, 'Failed to save quotes');
     return (await res.json()).quotes;
-  }
-
-  async getCollections(opts: RequestOptions = {}): Promise<CollectionRecord[]> {
-    const res = await fetch(`${API_BASE}/collections`, { signal: opts.signal, cache: 'no-store' });
-    if (!res.ok) await fail(res, 'Failed to load collections');
-    const body = await res.json();
-    return Array.isArray(body?.collections) ? body.collections : [];
-  }
-
-  async saveCollections(collections: CollectionRecord[], opts: RequestOptions = {}): Promise<CollectionRecord[]> {
-    const res = await fetch(`${API_BASE}/collections`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ collections }),
-      signal: opts.signal,
-    });
-    if (!res.ok) await fail(res, 'Failed to save collections');
-    return (await res.json()).collections;
   }
 
   async getReading(opts: RequestOptions = {}): Promise<ReadingLog> {

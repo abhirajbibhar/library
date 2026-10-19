@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useLibraryStore, refreshIfStale } from '../store';
+import { readerBridge, useReaderBridge } from '../lib/readerBridge';
 import { 
   LayoutDashboard, Library, StickyNote, FolderOpen, 
-  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote
+  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw
 } from 'lucide-react';
 
 const navItems = [
@@ -26,7 +27,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
-  const { loaded, loading, error, refresh, notice } = useLibraryStore();
+  const { loaded, loading, error, refresh, notice, getBook } = useLibraryStore();
+  const bridge = useReaderBridge();
 
   // Load everything from the Worker once, then refresh quietly whenever the tab comes back.
   useEffect(() => {
@@ -82,6 +84,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
   
   const backPath = getBackPath();
+  const readerBook = location.pathname.startsWith('/reader/') ? getBook(location.pathname.split('/')[2] ?? '') : undefined;
   const fullBleed = FULL_BLEED.some((p) => location.pathname.startsWith(p));
 
   return (
@@ -103,28 +106,44 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Right side of header */}
         <div className="flex-1 flex items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-3">
-            {/* Mobile menu toggle */}
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 rounded-md hover:bg-gray-800 text-gray-400"
-            >
-              {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
-
-            {/* Back button for sub-pages */}
-            {isSubPage && (
+          <div className="flex items-center gap-2 min-w-0">
+            {isSubPage ? (
+              /* On a page you can go back from, the back arrow takes the place of the menu button */
               <Link
                 to={backPath}
-                className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+                aria-label="Back"
+                title="Back"
+                className="p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-white transition-colors flex-shrink-0"
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="text-sm">Back</span>
+                <ArrowLeft className="w-5 h-5" />
               </Link>
+            ) : (
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+                className="lg:hidden p-2 rounded-md hover:bg-gray-800 text-gray-400"
+              >
+                {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            )}
+            {readerBook && (
+              <h2 className="text-sm font-medium text-white truncate" title={readerBook.title}>{readerBook.title}</h2>
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            {bridge.active && (
+              <button
+                onClick={() => readerBridge.refresh?.()}
+                disabled={bridge.busy}
+                aria-label="Refresh: pull the latest annotations and progress"
+                title="Refresh: pull the latest annotations and progress from your other devices"
+                className="relative p-2 rounded-md hover:bg-gray-800 text-gray-300 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-4 h-4 ${bridge.busy ? 'animate-spin' : ''}`} />
+                {bridge.dirty && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400" title="Unsaved changes" />}
+              </button>
+            )}
             <div 
               className={`w-2 h-2 rounded-full ${
                 isOnline 
@@ -185,17 +204,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          {/* Footer – pinned at bottom of sidebar */}
-          <div className="flex-shrink-0 p-3 border-t border-gray-800">
-            <div className="flex items-center justify-center px-3.5 py-2">
-              <div className="w-[18px] h-[18px] flex items-center justify-center text-gray-500">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-              </div>
-            </div>
-          </div>
         </aside>
 
         {/* Main Content – independent scroll */}

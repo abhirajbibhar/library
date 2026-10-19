@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
-import { formatDuration, localDay } from '../lib/format';
+import { coverColor, formatDuration, localDay, plural } from '../lib/format';
 import BookCard from '../components/BookCard';
 import QuoteSection from '../components/QuoteSection';
 import { 
@@ -11,7 +11,7 @@ import {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { books, collections, reading, getStats } = useLibraryStore();
+  const { books, folders, reading, getStats } = useLibraryStore();
   const { menuFor, dialog } = useBookActions();
 
   const stats = getStats();
@@ -192,23 +192,23 @@ export default function Dashboard() {
         <div className="bg-gray-900 rounded-md border border-gray-800 p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Your Collections</h3>
           <div className="space-y-3">
-            {collections.length === 0 && <p className="text-sm text-gray-500">No collections yet. Group books your own way from the Collections page.</p>}
-            {collections.slice(0, 6).map(col => (
-              <Link 
-                key={col.id} 
-                to={`/collections/${col.id}`}
+            {folders.length === 0 && <p className="text-sm text-gray-500">No collections yet. Add a book to a new folder and it appears here.</p>}
+            {folders.slice(0, 6).map(f => (
+              <Link
+                key={f.name}
+                to={`/collections/${encodeURIComponent(f.name)}`}
                 className="flex items-center justify-between p-3 rounded-md bg-gray-800/50 hover:bg-gray-800 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ backgroundColor: `${col.color}20` }}>
-                    <Folder className="w-4 h-4" style={{ color: col.color }} />
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded flex items-center justify-center shrink-0" style={{ backgroundColor: `${coverColor(f.name)}33` }}>
+                    <Folder className="w-4 h-4" style={{ color: coverColor(f.name) }} />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{col.name}</p>
-                    <p className="text-xs text-gray-400">{col.bookIds.length} books</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{f.name}</p>
+                    <p className="text-xs text-gray-400">{plural(f.count, 'book')}</p>
                   </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-gray-500" />
+                <ArrowRight className="w-4 h-4 text-gray-500 shrink-0" />
               </Link>
             ))}
           </div>

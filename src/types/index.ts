@@ -25,7 +25,6 @@ export interface Book {
   favorite: boolean;
   tags: string[];
   readingSeconds: number;
-  collectionIds: string[];
 }
 
 /** One highlight or note, read from the per-PDF annotations file. */
@@ -43,14 +42,13 @@ export interface Annotation {
   updatedAt: string;
 }
 
-export interface Collection {
-  id: string;
+/** A folder in your bucket. Each folder is a collection of books. */
+export interface FolderInfo {
   name: string;
-  description: string;
-  icon: string;
-  color: string;
-  bookIds: string[]; // Book.id values (the store maps them to and from PDF keys)
-  createdAt: string;
+  count: number;
+  finished: number;
+  progress: number; // average reading progress, 0-100
+  size: number; // bytes
 }
 
 export interface LibraryStats {

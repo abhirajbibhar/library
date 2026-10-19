@@ -120,17 +120,6 @@ export interface VersionInfo {
   uploaded: string;
 }
 
-/** A collection as stored by the Worker (bookIds are PDF keys). */
-export interface CollectionRecord {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  color: string;
-  bookIds: string[];
-  createdAt: string;
-}
-
 /** A quote you picked, with its attribution (stored in _library/quotes.json). */
 export interface UserQuote {
   id: string;

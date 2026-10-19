@@ -1,13 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, Check, FileDown, Highlighter, PanelRightClose, PanelRightOpen, RefreshCw, Save, StickyNote, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
+import { readerBridge } from '../lib/readerBridge';
 import { PDFViewer, type PDFViewerRef } from '@embedpdf/react-pdf-viewer';
 import type { AnnotationOp, AnnotationsFile, ViewState } from '../types';
 import { WASM_URL, VIEWER_FONTS } from '../lib/viewer-assets';
 import { updateMetadata, getMetadata, getAnnotations, patchAnnotations } from '../lib/db';
 import { useReadingTimer } from '../hooks/useReadingTimer';
 import { useLibraryStore } from '../store';
-import { formatDay } from '../lib/format';
 import { ANNOTATION_AUTHOR, API_BASE, PDF_LOAD_MODE } from '../config';
 
 const PROGRESS_DEBOUNCE_MS = 1500;
@@ -113,10 +113,9 @@ async function applyAnnotationsToViewer(
 
 export default function Reader() {
   const { id: bookId } = useParams<{ id: string }>();
-  const { getBook, getAnnotationsByBook, refresh: refreshStore } = useLibraryStore();
+  const { getBook, refresh: refreshStore } = useLibraryStore();
   const book = getBook(bookId ?? '');
   const id = book?.r2Key; // everything below talks to the Worker by the PDF's key
-  const [showPanel, setShowPanel] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
   const storeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(storeTimerRef.current), []);
   // #/viewer/<id>?page=12 opens at that page instead of the saved position (annotation and quote links use this).
@@ -739,37 +738,20 @@ export default function Reader() {
     }
   };
 
-  // Export: the PDF together with its highlights and notes (so it opens with them in any PDF app)
-  const [isExporting, setIsExporting] = useState(false);
-  const handleExport = useCallback(async () => {
-    if (!viewerRef.current || isExporting) return;
-    setIsExporting(true);
-    try {
-      const registry = await viewerRef.current.registry;
-      const annotation = registry?.getPlugin('annotation')?.provides?.();
-      await annotation?.commit?.()?.toPromise?.(); // make sure pending edits are part of the file
-      await flushAnnotations(); // and in your saved notes
-      const exporter = registry?.getPlugin('export')?.provides?.();
-      if (!exporter?.download) throw new Error("Export isn't available here. Try the download button in the viewer's toolbar.");
-      exporter.download();
-      showStatus({ kind: 'success', message: 'Exported with annotations' });
-    } catch (err) {
-      console.error('Export failed:', err);
-      showStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Export failed' });
-    } finally {
-      setIsExporting(false);
-    }
-  }, [isExporting, flushAnnotations, showStatus]);
-
-  // Jump to a page from the notes panel
-  const goToPage = useCallback(async (page: number) => {
-    const registry = await viewerRef.current?.registry;
-    registry?.getPlugin('scroll')?.provides?.()?.scrollToPage({ pageNumber: page, behavior: 'smooth' });
-    if (window.innerWidth < 640) setShowPanel(false);
-  }, []);
+  // The site header shows the Refresh button on this page and its busy / unsaved state
+  useEffect(() => {
+    readerBridge.refresh = () => void handleRefresh();
+    readerBridge.set({ active: true });
+    return () => {
+      readerBridge.refresh = null;
+      readerBridge.set({ active: false, busy: false, dirty: false });
+    };
+  }, [handleRefresh]);
+  useEffect(() => {
+    readerBridge.set({ busy: isSyncing || isSaving, dirty: isDirty });
+  }, [isSyncing, isSaving, isDirty]);
 
   // ------------------------------------------------------------------ render
-  const notes = book ? getAnnotationsByBook(book.id) : [];
   const backTo = book ? `/book/${book.id}` : '/library';
 
   if (!book) {
@@ -809,58 +791,23 @@ export default function Reader() {
     );
   }
 
-  const highlights = notes.filter((a) => a.type === 'highlight');
-  const plain = notes.filter((a) => a.type === 'note');
-
   return (
-    <div className="h-full w-full max-w-full flex flex-col bg-gray-950 overflow-hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-2 px-2 sm:px-3 py-2 border-b border-gray-800 bg-gray-900 flex-shrink-0 z-20">
-        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-          <Link to={backTo} onClick={confirmLeave} aria-label="Back to book" title="Back to book" className="p-2 rounded-md hover:bg-gray-800 text-gray-400 transition-colors flex-shrink-0">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div className="min-w-0">
-            <h1 className="text-sm font-medium text-white truncate max-w-[40vw] sm:max-w-[320px] lg:max-w-none" title={docName}>{docName}</h1>
-            <p className="text-xs text-gray-500 hidden sm:block truncate">{book.genre}{totalPages > 0 ? ` · ${totalPages} pages` : ''}</p>
+    <div className="relative h-full w-full max-w-full flex flex-col bg-gray-950 overflow-hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* Sync / save messages float over the viewer: there is no toolbar of our own any more */}
+      <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2 pointer-events-none" aria-live="polite">
+        {isDirty && <span className="text-xs font-medium text-amber-300 bg-gray-900/90 border border-amber-500/30 px-2 py-1 rounded-md">Unsaved</span>}
+        {saveStatus?.kind === 'success' && (
+          <div className="flex items-center gap-1.5 text-green-300 bg-gray-900/90 border border-green-500/30 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in">
+            <Check className="w-3.5 h-3.5" />
+            <span>{saveStatus.message === 'Saved' ? 'Saved' : saveStatus.message}</span>
           </div>
-          {isDirty && <span className="shrink-0 text-[10px] sm:text-xs font-medium text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded">Unsaved</span>}
-        </div>
-
-        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-          <div aria-live="polite">
-            {saveStatus?.kind === 'success' && (
-              <div className="flex items-center gap-1 text-green-300 bg-green-500/10 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in">
-                <Check className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{saveStatus.message === 'Saved' ? 'Saved!' : saveStatus.message}</span>
-              </div>
-            )}
-            {saveStatus?.kind === 'error' && (
-              <div className="flex items-center gap-1 text-red-300 bg-red-500/10 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in max-w-[10rem] sm:max-w-xs" title={saveStatus.message}>
-                <X className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{saveStatus.message}</span>
-              </div>
-            )}
+        )}
+        {saveStatus?.kind === 'error' && (
+          <div className="flex items-center gap-1.5 text-red-300 bg-gray-900/90 border border-red-500/30 px-2.5 py-1.5 rounded-md text-xs font-medium animate-fade-in max-w-xs" title={saveStatus.message}>
+            <X className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{saveStatus.message}</span>
           </div>
-
-          <button onClick={handleRefresh} disabled={isSyncing || isSaving} title="Refresh: pull the latest annotations and progress from your other devices" aria-label="Refresh and sync"
-            className="p-2 rounded-md text-gray-300 hover:bg-gray-800 disabled:opacity-50 transition-colors">
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-          </button>
-          <button onClick={() => void handleExport()} disabled={isExporting} title="Export this PDF with your highlights and notes" aria-label="Export PDF with annotations"
-            className="p-2 rounded-md text-gray-300 hover:bg-gray-800 disabled:opacity-50 transition-colors">
-            <FileDown className="w-4 h-4" />
-          </button>
-          <button onClick={handleSave} disabled={isSaving || isSyncing} title="Save now (annotations also save automatically): Ctrl/⌘+S" aria-label="Save"
-            className="p-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors">
-            {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
-          </button>
-          <button onClick={() => setShowPanel((v) => !v)} aria-pressed={showPanel} title="Notes and highlights"
-            className={`p-2 rounded-md transition-colors flex items-center gap-2 ${showPanel ? 'bg-blue-500/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-            {showPanel ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-            <span className="text-xs hidden lg:inline">{notes.length} notes</span>
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Resume / progress banners */}
@@ -894,96 +841,45 @@ export default function Reader() {
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0 relative">
-        {/* PDF viewer */}
-        <div className="flex-1 min-w-0 min-h-0">
-          <PDFViewer
-            ref={viewerRef}
-            style={{ width: '100%', height: '100%' }}
-            config={{
-              // Stream the PDF from the worker URL (HTTP range requests) instead of handing the viewer a finished
-              // blob. If-Match pins every range request to the version we checked, so a file replaced mid-read
-              // fails cleanly (412) instead of mixing two versions.
-              documentManager: {
-                initialDocuments: [
-                  {
-                    url: pdfSource.url,
-                    name: docName || 'Document',
-                    mode: PDF_LOAD_MODE,
-                    requestOptions: pdfSource.etag ? { headers: { 'If-Match': pdfSource.etag } } : undefined,
-                  },
-                ],
-              },
-              wasmUrl: WASM_URL,
-              fontFallback: null, // PDFs embed their own fonts, so no fallback fonts to host or download
-              fonts: VIEWER_FONTS,
-              stamp: { manifests: [] }, // don't fetch the default stamp library from a CDN
-              theme: { preference: theme, dark: { accent: { primary: '#3b82f6' } } },
-              annotations: { annotationAuthor: ANNOTATION_AUTHOR },
-              disabledCategories: [
-                'annotation-shape',
-                'insert',
-                'form',
-                'redaction',
-                'document-open',
-                'document-close',
-                'document-print',
-                'document-protect',
-                'security',
+      <div className="flex-1 min-h-0 relative">
+        <PDFViewer
+          ref={viewerRef}
+          style={{ width: '100%', height: '100%' }}
+          config={{
+            // Stream the PDF from the worker URL (HTTP range requests) instead of handing the viewer a finished
+            // blob. If-Match pins every range request to the version we checked, so a file replaced mid-read
+            // fails cleanly (412) instead of mixing two versions.
+            documentManager: {
+              initialDocuments: [
+                {
+                  url: pdfSource.url,
+                  // The file name carries ".pdf": without it the viewer's Export/Download saved a ".txt" file.
+                  name: `${(docName || 'Document').replace(/\.pdf$/i, '')}.pdf`,
+                  mode: PDF_LOAD_MODE,
+                  requestOptions: pdfSource.etag ? { headers: { 'If-Match': pdfSource.etag } } : undefined,
+                },
               ],
-            }}
-            onReady={() => setViewerReady(true)}
-          />
-        </div>
-
-        {/* Notes and highlights for this book */}
-        {showPanel && (
-          <aside className="fixed sm:static inset-0 sm:inset-auto sm:w-80 border-l border-gray-800 bg-gray-900 flex flex-col overflow-hidden flex-shrink-0 z-30" aria-label="Notes and highlights">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-shrink-0">
-              <h2 className="text-sm font-semibold text-white">Notes &amp; highlights</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-md">{notes.length}</span>
-                <button onClick={() => setShowPanel(false)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400" aria-label="Close panel"><X className="w-4 h-4" /></button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              {highlights.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-medium text-yellow-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Highlighter className="w-3 h-3" />Highlights ({highlights.length})</h3>
-                  <div className="space-y-2">
-                    {[...highlights].sort((a, b) => a.page - b.page).map((h) => (
-                      <button key={h.id} onClick={() => void goToPage(h.page)} className="w-full text-left p-2.5 rounded-lg border bg-yellow-500/5 border-yellow-500/10 hover:border-yellow-500/30 transition-colors">
-                        <p className="text-xs text-yellow-100/80 italic line-clamp-3">“{h.content}”</p>
-                        {h.comment && <p className="text-xs text-gray-300 mt-1.5 line-clamp-3">{h.comment}</p>}
-                        <p className="text-[10px] text-gray-500 mt-1.5">Page {h.page} · {formatDay(h.updatedAt)}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {plain.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-medium text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><StickyNote className="w-3 h-3" />Notes ({plain.length})</h3>
-                  <div className="space-y-2">
-                    {[...plain].sort((a, b) => a.page - b.page).map((n) => (
-                      <button key={n.id} onClick={() => void goToPage(n.page)} className="w-full text-left p-2.5 rounded-lg border bg-purple-500/5 border-purple-500/10 hover:border-purple-500/30 transition-colors">
-                        <p className="text-xs text-gray-300 line-clamp-4 whitespace-pre-line">{n.content}</p>
-                        <p className="text-[10px] text-gray-500 mt-1.5">Page {n.page} · {formatDay(n.updatedAt)}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {notes.length === 0 && (
-                <div className="text-center py-12">
-                  <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center mx-auto mb-3"><StickyNote className="w-6 h-6 text-gray-600" /></div>
-                  <p className="text-gray-500 text-sm">No annotations yet</p>
-                  <p className="text-gray-600 text-xs mt-1">Select text in the PDF to highlight it, or use the toolbar to add a note.</p>
-                </div>
-              )}
-            </div>
-          </aside>
-        )}
+            },
+            wasmUrl: WASM_URL,
+            fontFallback: null, // PDFs embed their own fonts, so no fallback fonts to host or download
+            fonts: VIEWER_FONTS,
+            stamp: { manifests: [] }, // don't fetch the default stamp library from a CDN
+            theme: { preference: theme, dark: { accent: { primary: '#3b82f6' } } },
+            annotations: { annotationAuthor: ANNOTATION_AUTHOR },
+            disabledCategories: [
+              'annotation-shape',
+              'insert',
+              'form',
+              'redaction',
+              'document-open',
+              'document-close',
+              'document-print',
+              'document-protect',
+              'security',
+            ],
+          }}
+          onReady={() => setViewerReady(true)}
+        />
       </div>
     </div>
   );

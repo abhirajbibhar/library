@@ -312,12 +312,12 @@ One Cloudflare Worker serves both the built frontend (`dist/`, via Workers Stati
 | Route | Page |
 | --- | --- |
 | `#/` | Dashboard: continue reading, favourites, stats, daily quote, weekly reading time, collections |
-| `#/library` | Library: search, filter by folder, collection or favourites, sort, grid or list, **Add Book** (real upload) |
+| `#/library` | Library: search, filter by folder or favourites, sort, grid or list, **Add Book** (real upload) |
 | `#/book/<id>` | Book page: cover, rating, details, tags, progress, collections, notes; rename, move, version history, delete |
 | `#/reader/<id>` | The reader (EmbedPDF) with resume, progress, annotation sync and a notes panel. `?page=12` opens at page 12 |
 | `#/notes` | Every highlight and note: search, edit, delete, export (Markdown or CSV) |
 | `#/quotes` | Quotes you picked (with author, book, year, page). Saved in `_library/quotes.json`; one is shown on the dashboard each day |
-| `#/collections`, `#/collections/<id>` | Your own groups of books (independent of folders) |
+| `#/collections`, `#/collections/<folder>` | Collections: every folder is a collection |
 | `#/streak`, `#/streak/<date>` | Real reading history from the reading log |
 | `#/trash` | Deleted books, restorable for 30 days |
 | `#/settings` | Daily goal, folders (rename, delete), storage, covers, exports, install app |
@@ -328,12 +328,12 @@ Old `#/viewer/<key>` links still work (they forward to the reader).
 
 - A **book** is a PDF in R2 (`<folder>/<file>.pdf`); its **folder** is shown as the genre. Nothing is stored in the browser except the app itself.
 - **Highlights and notes** come from `Annotation/<folder>/<file>.json`, written by the reader.
-- **Favourites, tags, ratings and book details** live in `_library/state.json`; **collections** in `_library/collections.json`; **quotes** in `_library/quotes.json` (a plain JSON file: `{ "version": 1, "quotes": [ { "text", "author", "book", "year", "page", "note" } ] }`); **reading time** in `_library/reading.json`; **covers** in `_covers/`.
+- **Favourites, tags, ratings and book details** live in `_library/state.json`; **quotes** in `_library/quotes.json` (a plain JSON file: `{ "version": 1, "quotes": [ { "text", "author", "book", "year", "page", "note" } ] }`); **reading time** in `_library/reading.json`; **covers** in `_covers/`.
 
 ### API
 
 - `GET /api/documents` lists books (with progress, favourite, tags, details and cover).
-- `GET /api/storage`, `GET /api/annotations`, `GET|PUT /api/quotes`, `GET /api/collections`, `PUT /api/collections`, `GET /api/reading`, `POST /api/reading`, `PUT /api/reading/goal`.
+- `GET /api/storage`, `GET /api/annotations`, `GET|PUT /api/quotes`, `GET /api/reading`, `POST /api/reading`, `PUT /api/reading/goal`.
 - `PUT /api/documents/<folder>/<file>.pdf` uploads (a new folder is created by its first file). `POST /api/move` renames or moves a book with everything attached to it.
 - `DELETE /api/documents/<key>` moves a book to the trash (needs an `X-Confirm-Delete` header naming the key). `GET /api/trash`, `POST /api/trash/<id>/restore`, `DELETE /api/trash/<id>`, `DELETE /api/trash` (header `X-Confirm-Delete: empty-trash`).
 - `PATCH /api/state/<key>` sets `{ favorite, tags, meta }`. `GET|PUT /api/covers/<key>`. `GET /api/versions/<key>`, `POST /api/versions/<key>/restore`.

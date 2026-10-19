@@ -109,15 +109,13 @@ export default function Notes() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-md p-3 sm:p-4 text-center">
-          <Highlighter className="w-5 h-5 text-yellow-400 mx-auto mb-1" />
-          <p className="text-xl sm:text-2xl font-bold text-white">{highlightCount}</p>
-          <p className="text-xs text-gray-400">Highlights</p>
+        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-md p-3 sm:p-4 flex items-center justify-center gap-3" title="Highlights">
+          <Highlighter className="w-5 h-5 text-yellow-400" aria-hidden="true" />
+          <p className="text-xl sm:text-2xl font-bold text-white"><span className="sr-only">Highlights: </span>{highlightCount}</p>
         </div>
-        <div className="bg-purple-500/5 border border-purple-500/20 rounded-md p-3 sm:p-4 text-center">
-          <StickyNote className="w-5 h-5 text-purple-400 mx-auto mb-1" />
-          <p className="text-xl sm:text-2xl font-bold text-white">{noteCount}</p>
-          <p className="text-xs text-gray-400">Notes</p>
+        <div className="bg-purple-500/5 border border-purple-500/20 rounded-md p-3 sm:p-4 flex items-center justify-center gap-3" title="Notes">
+          <StickyNote className="w-5 h-5 text-purple-400" aria-hidden="true" />
+          <p className="text-xl sm:text-2xl font-bold text-white"><span className="sr-only">Notes: </span>{noteCount}</p>
         </div>
       </div>
 

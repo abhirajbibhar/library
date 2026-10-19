@@ -19,21 +19,19 @@ const sortOptions = [
 
 export default function Library() {
   const navigate = useNavigate();
-  const { books, collections, searchQuery, setSearchQuery, activeFilter, setActiveFilter } = useLibraryStore();
+  const { books, folders, searchQuery, setSearchQuery, activeFilter, setActiveFilter } = useLibraryStore();
   const { menuFor, dialog } = useBookActions();
   const [params] = useSearchParams();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState('Recently Added');
   const [showUploadModal, setShowUploadModal] = useState(params.has('upload'));
 
-  // Filter options: everything, favourites, each folder, each collection
-  const folderNames = useMemo(() => [...new Set(books.map((b) => b.folder))].sort((x, y) => x.localeCompare(y, undefined, { numeric: true })), [books]);
+  // Filter options: everything, favourites, then each folder by its name
   const collectionOptions = useMemo(() => [
     { value: 'all', label: 'All Books' },
     { value: 'fav', label: '★ Favourites' },
-    ...folderNames.map(f => ({ value: `folder:${f}`, label: `Folder · ${f}` })),
-    ...collections.map(c => ({ value: c.id, label: `Collection · ${c.name}` })),
-  ], [collections, folderNames]);
+    ...folders.map(f => ({ value: `folder:${f.name}`, label: f.name })),
+  ], [folders]);
 
   const filteredBooks = useMemo(() => {
     let result = [...books];
@@ -52,7 +50,6 @@ export default function Library() {
     // Filter by collection
     if (activeFilter === 'fav') result = result.filter(b => b.favorite);
     else if (activeFilter.startsWith('folder:')) result = result.filter(b => b.folder === activeFilter.slice(7));
-    else if (activeFilter !== 'all') result = result.filter(b => b.collectionIds.includes(activeFilter));
 
     // Sort
     switch (sortBy) {
@@ -81,17 +78,18 @@ export default function Library() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Library</h1>
-          <p className="text-gray-400 mt-1 text-sm sm:text-base">{books.length} books in your collection</p>
+          <p className="text-gray-400 mt-1 text-sm sm:text-base">{books.length} {books.length === 1 ? 'book' : 'books'}</p>
         </div>
         <button
           onClick={() => setShowUploadModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-sm font-medium transition-colors self-start"
+          aria-label="Add book"
+          title="Add book"
+          className="p-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors shrink-0"
         >
-          <Upload className="w-4 h-4" />
-          Add Book
+          <Upload className="w-5 h-5" />
         </button>
       </div>
 

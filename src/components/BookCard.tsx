@@ -14,6 +14,8 @@ interface BookCardProps {
 export default function BookCard({ book, onClick, menu }: BookCardProps) {
   const [broken, setBroken] = useState(false);
   const showImage = !!book.cover && !broken;
+  // The folder is already shown as the badge below, so the line under the title is the author, or else the tags.
+  const subtitle = book.author || book.tags.join(', ');
 
   return (
     <div
@@ -59,7 +61,7 @@ export default function BookCard({ book, onClick, menu }: BookCardProps) {
         <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-white text-sm line-clamp-1 group-hover:text-blue-300 transition-colors">{book.title}</h3>
-            <p className="text-xs text-gray-400 mt-1 truncate">{book.author || book.genre}</p>
+            {subtitle && <p className="text-xs text-gray-400 mt-1 truncate">{subtitle}</p>}
           </div>
           {menu && menu.length > 0 && (
             <div className="-mr-2 -mt-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
