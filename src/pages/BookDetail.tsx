@@ -5,6 +5,8 @@ import { useBookActions } from '../hooks/useBookActions';
 import FormDialog from '../components/FormDialog';
 import Menu from '../components/Menu';
 import { coverColor, formatDay, formatDuration } from '../lib/format';
+import { readPdfDetails } from '../lib/cover';
+import { useOffline } from '../lib/offline';
 import { Play, Star, Calendar, FileText, Globe, Hash, Highlighter, StickyNote, Clock, Folder, Pencil, MoreHorizontal } from 'lucide-react';
 
 export default function BookDetail() {
@@ -12,6 +14,7 @@ export default function BookDetail() {
   const navigate = useNavigate();
   const { getBook, getAnnotationsByBook, updateBookDetails, toggleFavorite } = useLibraryStore();
   const [editing, setEditing] = useState(false);
+  const savedOffline = useOffline().has(getBook(id || '')?.r2Key ?? '');
   const { menuFor, dialog } = useBookActions((c) => {
     if (c.kind === 'doc-removed') navigate('/library', { replace: true });
     else if (c.kind === 'changed' && c.newKey) navigate(`/book/${bookIdFor(c.newKey)}`, { replace: true });
@@ -70,6 +73,8 @@ export default function BookDetail() {
             ))}
             {book.rating ? <span className="text-sm text-gray-400 ml-2">{book.rating}/5</span> : <span className="text-sm text-gray-600 ml-2">Tap to rate</span>}
           </div>
+
+          {savedOffline && <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-sm bg-green-500/10 text-green-300 border border-green-500/20">Available offline</span>}
 
           {/* Tags */}
           {book.tags.length > 0 && (
@@ -134,13 +139,13 @@ export default function BookDetail() {
         </div>
       </div>
 
-      {editing && <EditDetails book={book} onClose={() => setEditing(false)} onSave={async (d) => { await updateBookDetails(book.id, d); setEditing(false); }} />}
+      {editing && <EditDetails book={book} pdfKey={book.r2Key} onClose={() => setEditing(false)} onSave={async (d) => { await updateBookDetails(book.id, d); setEditing(false); }} />}
       {dialog}
     </div>
   );
 }
 
-function EditDetails({ book, onClose, onSave }: { book: { author: string; description: string; publishedYear?: number; language?: string; isbn?: string }; onClose: () => void; onSave: (d: { author: string; description: string; publishedYear: number; language: string; isbn: string }) => Promise<void> }) {
+function EditDetails({ book, pdfKey, onClose, onSave }: { pdfKey: string; book: { author: string; description: string; publishedYear?: number; language?: string; isbn?: string }; onClose: () => void; onSave: (d: { author: string; description: string; publishedYear: number; language: string; isbn: string }) => Promise<void> }) {
   const [author, setAuthor] = useState(book.author);
   const [description, setDescription] = useState(book.description);
   const [year, setYear] = useState(book.publishedYear ? String(book.publishedYear) : '');
@@ -148,6 +153,25 @@ function EditDetails({ book, onClose, onSave }: { book: { author: string; descri
   const [isbn, setIsbn] = useState(book.isbn ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<string | null>(null);
+  // Fill only the empty fields from what the PDF file says about itself; never overwrite what you typed
+  const fillFromPdf = async () => {
+    setReading(true);
+    setReadNote(null);
+    try {
+      const d = await readPdfDetails(pdfKey);
+      let filled = 0;
+      if (d.author && !author.trim()) { setAuthor(d.author); filled++; }
+      if (d.description && !description.trim()) { setDescription(d.description); filled++; }
+      if (d.language && !language.trim()) { setLanguage(d.language); filled++; }
+      setReadNote(filled ? `Filled in ${filled} ${filled === 1 ? 'field' : 'fields'} from the PDF.` : 'The PDF doesn’t state anything new.');
+    } catch {
+      setReadNote('Couldn’t read the PDF. Check your connection.');
+    } finally {
+      setReading(false);
+    }
+  };
   const yearNum = year.trim() ? Number(year) : 0;
   const yearBad = year.trim() !== '' && (!Number.isInteger(yearNum) || yearNum < 0 || yearNum > 3000);
 
@@ -155,6 +179,12 @@ function EditDetails({ book, onClose, onSave }: { book: { author: string; descri
     <FormDialog title="Edit details" confirmLabel="Save" busy={busy} error={error} disabled={yearBad} onCancel={onClose}
       onConfirm={() => { setBusy(true); setError(null); onSave({ author, description, publishedYear: yearNum, language, isbn }).catch((e) => { setError(e instanceof Error ? e.message : 'Could not save'); setBusy(false); }); }}>
       <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => void fillFromPdf()} disabled={reading} className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-100 rounded-md text-xs font-medium transition-colors">
+            {reading ? 'Reading…' : 'Fill from PDF'}
+          </button>
+          {readNote && <span role="status" className="text-xs text-gray-400">{readNote}</span>}
+        </div>
         <label className="block"><span className="mute mb-1 block">Author</span><span className="field"><input value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={120} /></span></label>
         <label className="block"><span className="mute mb-1 block">Description</span>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={5} className="field w-full py-2 text-sm bg-transparent resize-y" />

@@ -1,4 +1,5 @@
-import { Star } from 'lucide-react';
+import { ArrowDownToLine, Star } from 'lucide-react';
+import { useOffline } from '../lib/offline';
 import { useState } from 'react';
 import { Book } from '../types';
 import { coverColor } from '../lib/format';
@@ -13,6 +14,7 @@ interface BookCardProps {
 /** A book: its real cover (page 1) or a coloured card with the title's initial, plus progress, rating and a ⋯ menu. */
 export default function BookCard({ book, onClick, menu }: BookCardProps) {
   const [broken, setBroken] = useState(false);
+  const offline = useOffline().has(book.r2Key);
   const showImage = !!book.cover && !broken;
   // The folder is already shown as the badge below, so the line under the title is the author, or else the tags.
   const subtitle = book.author || book.tags.join(', ');
@@ -33,6 +35,12 @@ export default function BookCard({ book, onClick, menu }: BookCardProps) {
         {book.favorite && (
           <div className="absolute top-3 right-3 rounded-full bg-black/45 p-1.5 backdrop-blur-sm" title="Favourite">
             <Star className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+          </div>
+        )}
+
+        {offline && (
+          <div className="absolute bottom-3 left-3 rounded-full bg-black/55 p-1.5 backdrop-blur-sm" title="Available offline">
+            <ArrowDownToLine className="w-3 h-3 text-green-300" aria-label="Available offline" />
           </div>
         )}
 

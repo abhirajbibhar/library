@@ -1,4 +1,6 @@
-import { HashRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { HashRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { registerLaunchQueue } from './lib/launchFiles';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Library from './pages/Library';
@@ -20,9 +22,19 @@ function LegacyViewer() {
   return <Navigate to={`/reader/${bookIdFor(id)}${window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : ''}`} replace />;
 }
 
+/** PDFs opened with the installed app (Windows / macOS "Open with") land in the upload form. */
+function LaunchHandler() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    registerLaunchQueue(() => navigate(`/library?upload=${Date.now()}`));
+  }, [navigate]);
+  return null;
+}
+
 export default function App() {
   return (
     <HashRouter>
+      <LaunchHandler />
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />

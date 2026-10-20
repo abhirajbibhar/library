@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLibraryStore } from '../store';
 import BookCard from '../components/BookCard';
 import Dropdown from '../components/Dropdown';
 import Menu from '../components/Menu';
 import UploadModal from '../components/UploadModal';
+import { modKey } from '../lib/platform';
 import { useBookActions } from '../hooks/useBookActions';
 import { Search, Grid, List, Upload } from 'lucide-react';
 
@@ -22,6 +23,15 @@ export default function Library() {
   const { books, folders, searchQuery, setSearchQuery, activeFilter, setActiveFilter } = useLibraryStore();
   const { menuFor, dialog } = useBookActions();
   const [params] = useSearchParams();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searchStamp = params.get('search');
+  const uploadStamp = params.get('upload');
+  useEffect(() => {
+    if (searchStamp) searchRef.current?.focus();
+  }, [searchStamp]);
+  useEffect(() => {
+    if (uploadStamp) setShowUploadModal(true); // also when PDFs were opened with the installed app
+  }, [uploadStamp]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState('Recently Added');
   const [showUploadModal, setShowUploadModal] = useState(params.has('upload'));
@@ -100,7 +110,8 @@ export default function Library() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
-            placeholder="Search books, authors, genres..."
+            ref={searchRef}
+            placeholder={`Search books, authors, tags…  (${modKey}+K)`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-gray-900 border border-gray-800 rounded-md text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"

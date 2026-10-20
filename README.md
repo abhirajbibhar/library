@@ -327,11 +327,14 @@ Old `#/viewer/<key>` links still work (they forward to the reader).
 ### How the data maps
 
 - A **book** is a PDF in R2 (`<folder>/<file>.pdf`); its **folder** is shown as the genre. Nothing is stored in the browser except the app itself.
-- **Highlights and notes** come from `Annotation/<folder>/<file>.json`, written by the reader.
+- **Highlights and notes** come from `Annotation/<folder>/<file>.json`, written by the reader. Deleting one removes its entry (and its change-log lines) completely. The only exception is an annotation that was already inside the uploaded PDF: it keeps a tiny id-only marker, because the PDF would otherwise bring it back.
+- When a book is deleted for good (trash emptied or expired), its per-book reading time is removed and quote links to it are cleared; the quotes themselves stay.
 - **Favourites, tags, ratings and book details** live in `_library/state.json`; **quotes** in `_library/quotes.json` (a plain JSON file: `{ "version": 1, "quotes": [ { "text", "author", "book", "year", "page", "note" } ] }`); **reading time** in `_library/reading.json`; **covers** in `_covers/`.
 
 ### API
 
+- `GET /api/session` reports whether Cloudflare Access is being enforced.
+- `GET /api/annotations` is served from a self-repairing index file (`_library/annotations-index.json`) built a batch at a time, so it has no file-count cap. The response includes `pending` while the index is still being built.
 - `GET /api/documents` lists books (with progress, favourite, tags, details and cover).
 - `GET /api/storage`, `GET /api/annotations`, `GET|PUT /api/quotes`, `GET /api/reading`, `POST /api/reading`, `PUT /api/reading/goal`.
 - `PUT /api/documents/<folder>/<file>.pdf` uploads (a new folder is created by its first file). `POST /api/move` renames or moves a book with everything attached to it.
@@ -339,6 +342,33 @@ Old `#/viewer/<key>` links still work (they forward to the reader).
 - `PATCH /api/state/<key>` sets `{ favorite, tags, meta }`. `GET|PUT /api/covers/<key>`. `GET /api/versions/<key>`, `POST /api/versions/<key>/restore`.
 
 Covers are drawn in the browser with pdf.js, loaded on demand from jsDelivr, so adding books works offline-first only for the upload itself.
+
+### Security (recommended)
+
+Put the whole site behind Cloudflare Access. To also make the **API itself** refuse requests that did not pass Access (so a misconfigured Access policy can never expose your library), set two Worker variables (Settings → Variables, or `[vars]` in `wrangler.toml`):
+
+- `ACCESS_TEAM_DOMAIN`: your team domain, e.g. `myteam.cloudflareaccess.com`
+- `ACCESS_AUD`: the Access application's "Application Audience (AUD) Tag"
+
+With both set, every `/api/*` request must carry a valid Access token (signature, issuer, audience and expiry are verified). Without them the API stays open so local development works, and **Settings → Security** tells you which mode you are in (`GET /api/session`).
+
+### Offline reading
+
+- Books you open are kept on the device (the last 3 by default; change it in Settings → Offline reading). Use **Save for offline** in a book's menu to keep one for good. A saved book opens without a connection, with its last-known notes and progress.
+- Edits made offline are retried automatically when the connection returns.
+- **Log out** (header or Settings) first removes saved books and cached lists from the device, so nothing is left behind on a shared computer.
+
+### Windows and macOS
+
+The site installs as a desktop app:
+
+- **Chrome or Edge (Windows, macOS):** click the install icon in the address bar, or menu → Apps → Install. After installing you can right-click a PDF → *Open with* → My Library to add it to the library.
+- **Safari 17+ (macOS):** File → Add to Dock.
+- **Shortcuts:** `Ctrl + K` (Windows/Linux) or `⌘ K` (macOS) searches the library; `Ctrl/⌘ + S` saves annotations in the reader.
+
+### Book details from the PDF
+
+When you add a book, the author, subject and language the PDF declares are filled in automatically (only values that look real). In **Edit details**, "Fill from PDF" does the same for a book already in the library and never overwrites what you typed.
 
 Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).
 

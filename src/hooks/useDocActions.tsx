@@ -4,6 +4,7 @@ import { generateCoverFor } from '../lib/cover';
 import { fileNameError, folderNameError, keyOf } from '../lib/names';
 import { allTags } from '../lib/docs';
 import { formatDay, formatSize, plural, viewerPath } from '../lib/format';
+import { removeOffline, saveForOffline, useOffline } from '../lib/offline';
 import type { PdfDocument, VersionInfo } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import FormDialog from '../components/FormDialog';
@@ -37,6 +38,7 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const offline = useOffline(); // re-render when books are saved or removed for offline reading
 
   useEffect(() => {
     if (!notice) return;
@@ -106,9 +108,25 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
     onChanged({ kind: 'changed' });
   };
 
+  const toggleOffline = async (doc: PdfDocument) => {
+    try {
+      if (offline.has(doc.id)) {
+        await removeOffline(doc.id);
+        setNotice('Offline copy removed');
+      } else {
+        setNotice('Saving for offline reading…');
+        await saveForOffline(doc.id, true);
+        setNotice('Saved for offline reading');
+      }
+    } catch (err) {
+      setNotice(msg(err, 'Could not save for offline reading'));
+    }
+  };
+
   const menuForDoc = (doc: PdfDocument): MenuEntry[] => [
     { label: 'Open', icon: 'book', to: viewerPath(doc.id) },
     { label: doc.favorite ? 'Remove from favourites' : 'Add to favourites', icon: 'star', onSelect: () => void toggleFavorite(doc) },
+    { label: offline.has(doc.id) ? 'Remove offline copy' : 'Save for offline', icon: 'download', onSelect: () => void toggleOffline(doc) },
     { heading: 'Manage' },
     { label: 'Rename', icon: 'pen', onSelect: () => setDlg({ type: 'rename-doc', doc }) },
     { label: 'Move to…', icon: 'folder', onSelect: () => setDlg({ type: 'move-doc', doc }) },

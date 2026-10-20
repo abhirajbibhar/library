@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLibraryStore, refreshIfStale } from '../store';
 import { readerBridge, useReaderBridge } from '../lib/readerBridge';
+import { LOGOUT_URL } from '../config';
+import { clearOfflineData } from '../lib/offline';
+import { hasMod } from '../lib/platform';
 import { 
   LayoutDashboard, Library, StickyNote, FolderOpen, 
-  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw
+  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw, LogOut
 } from 'lucide-react';
 
 const navItems = [
@@ -24,7 +27,20 @@ const FULL_BLEED = ['/reader/']; // the reader brings its own padding and toolba
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  const navigate = useNavigate();
+
+  // Ctrl+K (Windows, Linux) or ⌘K (macOS) jumps to search from anywhere
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        navigate(`/library?search=${Date.now()}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navigate]);
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const { loaded, loading, error, refresh, notice, getBook } = useLibraryStore();
@@ -152,6 +168,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               }`} 
               title={isOnline ? 'Online' : 'Offline'}
             />
+            <a
+              href={LOGOUT_URL}
+              onClick={(e) => {
+                // Leave nothing behind on this device: saved books and cached lists are removed before signing out
+                e.preventDefault();
+                void clearOfflineData().finally(() => { window.location.href = LOGOUT_URL; });
+              }}
+              aria-label="Log out"
+              title="Log out"
+              className="p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </a>
           </div>
         </div>
       </header>
@@ -208,6 +237,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Main Content – independent scroll */}
         <main ref={mainRef} className={`flex-1 overflow-y-auto ${fullBleed ? 'p-0' : 'p-4 lg:p-8'}`}>
+          {!isOnline && (
+            <div role="status" className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-center text-sm text-amber-200">
+              You’re offline. Books saved for offline reading still open; changes sync when you’re back online.
+            </div>
+          )}
           {!loaded ? (
             <div className="h-full flex items-center justify-center">
               {error ? (

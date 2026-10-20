@@ -24,6 +24,17 @@ run_worker_first = ["/api/*"]
 binding = "PDF_BUCKET"
 bucket_name = "baws"
 
-# Lock CORS to your site once deployed (default is "*", i.e. any origin may call the API).
+# Optional settings. Uncomment the [vars] line and the ones you need.
+#
+# SECURITY (recommended): make the API refuse any request that did not pass Cloudflare Access, even if Access is
+# ever switched off or misconfigured for the site. In Zero Trust -> Access -> Applications -> your app:
+#   ACCESS_TEAM_DOMAIN = your team domain, e.g. "myteam.cloudflareaccess.com"
+#   ACCESS_AUD         = the application's "Application Audience (AUD) Tag"
+# Settings shows whether this is on.
+#
+# CORS: only needed if another origin calls the API (default is "*").
+#
 # [vars]
-# ALLOWED_ORIGIN = "https://library.abhirajbibhar.workers.dev"   # only needed if another origin calls the API
+# ACCESS_TEAM_DOMAIN = "myteam.cloudflareaccess.com"
+# ACCESS_AUD = "paste-the-aud-tag-here"
+# ALLOWED_ORIGIN = "https://library.abhirajbibhar.workers.dev"

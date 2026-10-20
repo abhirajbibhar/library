@@ -53,7 +53,8 @@ export interface StoredAnnotation {
   data: Record<string, unknown>;
   created: string;
   modified: string;
-  deleted?: boolean;
+  baked?: boolean; // part of the PDF file itself
+  deleted?: boolean; // id-only marker kept for baked annotations
 }
 
 /** Shape of GET /api/annotations/:key – `rev` is 0 until the first annotation is saved. */
@@ -68,7 +69,7 @@ export interface AnnotationsFile {
 /** One change sent to PATCH /api/annotations/:key. */
 export type AnnotationOp =
   | { op: 'delete'; id: string }
-  | { op: 'upsert'; id: string; page: number; type: string; text: string; note: string; data: Record<string, unknown> };
+  | { op: 'upsert'; id: string; page: number; type: string; text: string; note: string; data: Record<string, unknown>; baked?: boolean };
 
 /** Shape of GET /api/storage */
 export interface StorageOverview {

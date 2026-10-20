@@ -233,10 +233,16 @@ export class RemoteStorageBackend implements StorageBackend {
   }
 
   async getAllAnnotations(opts: RequestOptions = {}): Promise<AnnotationSummary[]> {
-    const res = await fetch(`${API_BASE}/annotations`, { signal: opts.signal, cache: 'no-store' });
-    if (!res.ok) await fail(res, 'Failed to fetch annotations');
-    const body = await res.json();
-    return Array.isArray(body?.items) ? body.items : [];
+    // The Worker builds an index of your annotation files a batch at a time, so a big library needs a few calls.
+    let items: AnnotationSummary[] = [];
+    for (let round = 0; round < 40; round++) {
+      const res = await fetch(`${API_BASE}/annotations`, { signal: opts.signal, cache: 'no-store' });
+      if (!res.ok) await fail(res, 'Failed to fetch annotations');
+      const body = await res.json();
+      items = Array.isArray(body?.items) ? body.items : [];
+      if (!(body?.pending > 0)) break;
+    }
+    return items;
   }
 
   async getMetadata(id: string, opts: RequestOptions = {}): Promise<ReadingProgress> {

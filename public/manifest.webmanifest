@@ -10,13 +10,59 @@
   "background_color": "#030712",
   "theme_color": "#111827",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "Explore Library", "url": "/#/library" },
-    { "name": "Add to Library", "url": "/#/library?upload=1" },
-    { "name": "Annotations", "url": "/#/notes" }
+    {
+      "name": "Explore Library",
+      "url": "/#/library"
+    },
+    {
+      "name": "Add to Library",
+      "url": "/#/library?upload=1"
+    },
+    {
+      "name": "Annotations",
+      "url": "/#/notes"
+    }
+  ],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "categories": [
+    "books",
+    "productivity",
+    "education"
+  ],
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/pdf": [
+          ".pdf"
+        ]
+      }
+    }
   ]
 }

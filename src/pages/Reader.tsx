@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Check, X } from 'lucide-react';
 import { readerBridge } from '../lib/readerBridge';
+import { keepRecentOffline } from '../lib/offline';
 import { PDFViewer, type PDFViewerRef } from '@embedpdf/react-pdf-viewer';
 import type { AnnotationOp, AnnotationsFile, ViewState } from '../types';
 import { WASM_URL, VIEWER_FONTS } from '../lib/viewer-assets';
@@ -160,6 +161,8 @@ export default function Reader() {
   const retryResumeRef = useRef<(() => Promise<void>) | null>(null);
   const startTrackingRef = useRef<(() => void) | null>(null);
   const isDirtyRef = useRef(false);
+  /** Annotations created here that the server has not seen yet. Deleting one needs no request at all. */
+  const unsavedNewRef = useRef(new Set<string>());
   const pendingRef = useRef<PendingChanges>({ upserts: new Map(), deletes: new Map() });
   /** While true, annotation events come from our own merge and must not count as user edits. */
   const syncingRef = useRef(false);
@@ -280,6 +283,7 @@ export default function Reader() {
 
         // Forget what was sent – but keep anything edited again while the request was in flight.
         for (const annId of [...upIds, ...delIds]) {
+          unsavedNewRef.current.delete(annId); // the server has it now (or has just been told to drop it)
           if ((lastEditRef.current.get(annId) ?? 0) > seqAtStart) continue;
           upserts.delete(annId);
           deletes.delete(annId);
@@ -381,7 +385,7 @@ export default function Reader() {
       } catch (err) {
         if (cancelled || (err as Error)?.name === 'AbortError') return;
         console.error('Failed to load document:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load document');
+        setError(!navigator.onLine ? 'You are offline, and this book isn’t saved for offline reading. Open it once while online, or use “Save for offline” in its menu.' : err instanceof Error ? err.message : 'Failed to load document');
         setLoading(false);
       }
     })();
@@ -461,8 +465,16 @@ export default function Reader() {
           const { upserts, deletes } = pendingRef.current;
           if (event.type === 'delete') {
             upserts.delete(annId);
+            if (unsavedNewRef.current.delete(annId)) {
+              // Created and deleted before it was ever saved: the server never heard of it, so there is nothing to delete.
+              deletes.delete(annId);
+              lastEditRef.current.delete(annId);
+              if (upserts.size === 0 && deletes.size === 0) markDirty(false);
+              return;
+            }
             deletes.set(annId, event.pageIndex);
           } else {
+            if (event.type === 'create') unsavedNewRef.current.add(annId);
             deletes.delete(annId);
             upserts.set(annId, event.pageIndex);
           }
@@ -621,7 +633,8 @@ export default function Reader() {
         try {
           if (file.rev === 0) {
             const exported = (await annotation.exportAnnotations().toPromise()) as ExportedItem[];
-            const ops = exported.map(toUpsertOp).filter((op): op is AnnotationOp => op !== null);
+            // These came from the PDF file itself, so a later delete has to leave a marker (see the Worker).
+            const ops = exported.map(toUpsertOp).filter((op): op is AnnotationOp => op !== null).map((op) => (op.op === 'upsert' ? { ...op, baked: true } : op));
             if (ops.length > 0) {
               let rev = 0;
               for (const batch of chunked(ops, ANNOTATION_OPS_PER_REQUEST)) rev = await patchAnnotations(id, batch);
@@ -737,6 +750,13 @@ export default function Reader() {
       e.preventDefault();
     }
   };
+
+  // Keep this book (and your last few) readable without a connection. Waits a little so page 1 loads first.
+  useEffect(() => {
+    if (!viewerReady || !id) return;
+    const t = setTimeout(() => void keepRecentOffline(id), 6000);
+    return () => clearTimeout(t);
+  }, [viewerReady, id]);
 
   // The site header shows the Refresh button on this page and its busy / unsaved state
   useEffect(() => {

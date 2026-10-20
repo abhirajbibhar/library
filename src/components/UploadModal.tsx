@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { takePendingFiles } from '../lib/launchFiles';
 import { AlertCircle, Check, Clock, FileText, Upload, X } from 'lucide-react';
-import { putCover, uploadDocument } from '../lib/db';
-import { renderCover } from '../lib/cover';
+import { putCover, setDocState, uploadDocument } from '../lib/db';
+import { inspectPdf } from '../lib/cover';
 import { formatSize, plural } from '../lib/format';
 import { folderNameError } from '../lib/names';
 import { useLibraryStore } from '../store';
@@ -48,6 +49,13 @@ export default function UploadModal({ onClose, defaultFolder }: { onClose: () =>
   const nameError = isNew && newName ? folderNameError(folder) : null;
   const folderOk = isNew ? !!folder && !folderNameError(folder) : !!folder;
 
+  // PDFs sent here with "Open with My Library" (Windows / macOS desktop app)
+  useEffect(() => {
+    const opened = takePendingFiles();
+    if (opened.length) add(opened);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const patch = useCallback((uid: number, change: Partial<Item>) => setItems((l) => l.map((i) => (i.uid === uid ? { ...i, ...change } : i))), []);
 
   const add = (files: FileList | File[]) =>
@@ -79,10 +87,18 @@ export default function UploadModal({ onClose, defaultFolder }: { onClose: () =>
       aborts.current.set(r.uid, ctrl);
       patch(r.uid, { status: 'uploading', progress: 0, message: undefined });
       const key = `${folder}/${keyName(r.file)}`;
+      const isNewBook = !existing.has(key); // a replaced file keeps the details you already entered
       try {
         await uploadDocument(key, r.file, { signal: ctrl.signal, onProgress: (p) => patch(r.uid, { progress: p }) });
         patch(r.uid, { status: 'done', progress: 1 });
-        void renderCover(r.file).then((b) => putCover(key, b)).then(() => refresh(true)).catch((e) => console.warn('Cover not created:', e));
+        // One read of the PDF gives the cover (page 1) and whatever author, subject and language the file declares.
+        void inspectPdf(r.file)
+          .then(async ({ cover, details }) => {
+            if (cover) await putCover(key, cover);
+            if (isNewBook && Object.keys(details).length > 0) await setDocState(key, { meta: details });
+            await refresh(true);
+          })
+          .catch((e) => console.warn('Cover and details not created:', e));
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') patch(r.uid, { status: 'ready', progress: 0 });
         else patch(r.uid, { status: 'error', message: err instanceof Error ? err.message : 'Upload failed' });
@@ -129,7 +145,7 @@ export default function UploadModal({ onClose, defaultFolder }: { onClose: () =>
           <p className="text-sm text-gray-400 hidden sm:block">Drag PDF files here, or</p>
           <input ref={input} type="file" accept="application/pdf,.pdf" multiple className="sr-only" tabIndex={-1} onChange={(e) => { if (e.target.files) add(e.target.files); e.target.value = ''; }} />
           <button type="button" onClick={() => input.current?.click()} className="mt-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-md text-sm font-medium transition-colors">Choose PDF files</button>
-          <p className="text-xs text-gray-500 mt-2">PDF only, up to {formatSize(MAX_BYTES)} each. A cover is drawn from page 1.</p>
+          <p className="text-xs text-gray-500 mt-2">PDF only, up to {formatSize(MAX_BYTES)} each. A cover is drawn from page 1, and the author is filled in if the PDF states it.</p>
         </div>
 
         {rows.length > 0 && (

@@ -29,6 +29,10 @@ export interface Env {
   PDF_BUCKET: R2Bucket;
   /** e.g. "https://library.abhirajbibhar.workers.dev". Defaults to "*" (open) if unset. */
   ALLOWED_ORIGIN?: string;
+  /** Your Cloudflare Zero Trust team domain, e.g. "myteam.cloudflareaccess.com". With ACCESS_AUD it makes the API refuse any request that did not pass Cloudflare Access. */
+  ACCESS_TEAM_DOMAIN?: string;
+  /** The Access application's "Application Audience (AUD) Tag". */
+  ACCESS_AUD?: string;
 }
 
 /** Per-document viewer state, saved together with reading progress. */
@@ -69,7 +73,8 @@ interface StoredAnnotation {
   data: Record<string, unknown>;
   created: string;
   modified: string;
-  deleted?: boolean; // tombstone: lets a deletion win over annotations still baked into an older PDF
+  baked?: boolean; // it came from the PDF file itself (copied in on first open), not created in this app
+  deleted?: boolean; // tiny marker, kept ONLY for baked annotations so they don't reappear from the PDF
 }
 
 interface AnnotationLogEntry {
@@ -91,7 +96,7 @@ interface AnnotationsFile {
 
 type AnnotationOp =
   | { op: 'delete'; id: string }
-  | { op: 'upsert'; id: string; page: number; type: string; text: string; note: string; data: Record<string, unknown> };
+  | { op: 'upsert'; id: string; page: number; type: string; text: string; note: string; data: Record<string, unknown>; baked?: boolean };
 
 const MAX_VERSIONS = 3;
 const MAX_PDF_BYTES = 95 * 1024 * 1024; // Workers request-body limit is 100 MB on Free/Pro
@@ -187,6 +192,84 @@ function toIso(value: unknown): string {
 
 // ---------------------------------------------------------------- router
 
+
+// ---------------------------------------------------------------- Cloudflare Access check (defence in depth)
+
+interface AccessJwk {
+  kid: string;
+  kty: string;
+  alg?: string;
+  n: string;
+  e: string;
+}
+let accessKeyCache: { domain: string; at: number; keys: AccessJwk[] } | null = null;
+const ACCESS_KEY_TTL_MS = 60 * 60 * 1000;
+
+function b64urlBytes(input: string): Uint8Array<ArrayBuffer> {
+  const b64 = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=');
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function accessKeys(domain: string, refresh = false): Promise<AccessJwk[]> {
+  if (!refresh && accessKeyCache && accessKeyCache.domain === domain && Date.now() - accessKeyCache.at < ACCESS_KEY_TTL_MS) {
+    return accessKeyCache.keys;
+  }
+  const res = await fetch(`https://${domain}/cdn-cgi/access/certs`);
+  if (!res.ok) throw new Error(`Could not load Access keys (${res.status})`);
+  const body = (await res.json()) as { keys?: AccessJwk[] };
+  accessKeyCache = { domain, at: Date.now(), keys: body.keys ?? [] };
+  return accessKeyCache.keys;
+}
+
+/** Verifies the RS256 signature, issuer, audience and expiry of a Cloudflare Access token. */
+export async function verifyAccessJwt(token: string, domain: string, aud: string): Promise<{ email?: string } | null> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const dec = new TextDecoder();
+  const header = JSON.parse(dec.decode(b64urlBytes(parts[0]))) as { alg?: string; kid?: string };
+  if (header.alg !== 'RS256' || !header.kid) return null;
+
+  let jwk = (await accessKeys(domain)).find((k) => k.kid === header.kid);
+  if (!jwk) jwk = (await accessKeys(domain, true)).find((k) => k.kid === header.kid); // keys rotate
+  if (!jwk) return null;
+
+  const key = await crypto.subtle.importKey('jwk', jwk as JsonWebKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlBytes(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+  if (!valid) return null;
+
+  const claims = JSON.parse(dec.decode(b64urlBytes(parts[1]))) as { aud?: string | string[]; iss?: string; exp?: number; nbf?: number; email?: string };
+  const now = Date.now() / 1000;
+  const audOk = Array.isArray(claims.aud) ? claims.aud.includes(aud) : claims.aud === aud;
+  if (!audOk || claims.iss !== `https://${domain}`) return null;
+  if (typeof claims.exp !== 'number' || claims.exp + 60 < now) return null;
+  if (typeof claims.nbf === 'number' && claims.nbf - 60 > now) return null;
+  return { email: claims.email };
+}
+
+/**
+ * When ACCESS_TEAM_DOMAIN and ACCESS_AUD are set, every API request must carry a valid Access token.
+ * When they are not set the API stays open (so local development and first deploys keep working) and
+ * /api/session reports secured: false so the Settings page can warn about it.
+ */
+async function checkAccess(request: Request, env: Env): Promise<{ secured: boolean; ok: boolean; email?: string }> {
+  const domain = env.ACCESS_TEAM_DOMAIN?.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const aud = env.ACCESS_AUD?.trim();
+  if (!domain || !aud) return { secured: false, ok: true };
+
+  const token = request.headers.get('Cf-Access-Jwt-Assertion') ?? /(?:^|;\s*)CF_Authorization=([^;]+)/.exec(request.headers.get('Cookie') ?? '')?.[1];
+  if (!token) return { secured: true, ok: false };
+  try {
+    const who = await verifyAccessJwt(token, domain, aud);
+    return who ? { secured: true, ok: true, email: who.email } : { secured: true, ok: false };
+  } catch (err) {
+    console.error('Access check failed:', err);
+    return { secured: true, ok: false };
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const cors = buildCors(request, env);
@@ -194,7 +277,14 @@ export default {
 
     const path = new URL(request.url).pathname;
 
+    const access = await checkAccess(request, env);
+    if (!access.ok) return json({ error: 'Sign in required' }, cors, 403);
+
     try {
+      if (path === '/api/session' && request.method === 'GET') {
+        return json({ secured: access.secured, email: access.email ?? null }, cors);
+      }
+
       if (path === '/api/documents' && request.method === 'GET') {
         return await listDocuments(env, cors);
       }
@@ -265,9 +355,10 @@ export default {
         if (request.method === 'GET') return await listTrash(env, cors);
         if (request.method === 'DELETE') {
           requireConfirm(request, 'empty-trash');
-          const keys = (await listAll(env, `${TRASH_FOLDER}/`)).map((o) => o.key);
-          await deleteKeys(env, keys);
-          return json({ success: true, deleted: keys.length }, cors);
+          const ids = new Set((await listAll(env, `${TRASH_FOLDER}/`)).map((o) => o.key.split('/')[1]).filter(Boolean));
+          let deleted = 0;
+          for (const tid of ids) deleted += await purgeTrashItem(tid, env);
+          return json({ success: true, deleted }, cors);
         }
       }
       if (path.startsWith('/api/trash/') && path.length > '/api/trash/'.length) {
@@ -352,55 +443,103 @@ async function getStorage(env: Env, cors: Record<string, string>): Promise<Respo
   );
 }
 
-const MAX_ANNOTATION_FILES = 300;
-const MAX_ANNOTATION_ITEMS = 2000;
+const MAX_ANNOTATION_ITEMS = 10000;
+const ANN_INDEX_KEY = '_library/annotations-index.json'; // inside the reserved _library/ folder
+const ANN_INDEX_BATCH = 120; // annotation files read per request; the client asks again while `pending` > 0
 
-/** GET /api/annotations – every live annotation across all PDFs, newest first (for the Annotations page). */
+interface IndexedAnnotation {
+  id: string;
+  page: number;
+  type: string;
+  text: string;
+  note: string;
+  color: string | null;
+  created: string;
+  modified: string;
+}
+interface AnnotationIndex {
+  version: 1;
+  // key = the annotation file's key; etag tells us when the file changed since it was indexed
+  files: Record<string, { etag: string; docId: string; items: IndexedAnnotation[] }>;
+}
+const emptyAnnIndex = (): AnnotationIndex => ({ version: 1, files: {} });
+
+/**
+ * GET /api/annotations – every live annotation across all PDFs, newest first.
+ * Served from a small index file that repairs itself: files whose ETag changed are re-read (up to
+ * ANN_INDEX_BATCH per request), files that disappeared are dropped. So it scales with the library and
+ * nothing has to hook into every write.
+ */
 async function listAllAnnotations(env: Env, cors: Record<string, string>): Promise<Response> {
-  const files = (await listAll(env, `${ANNOTATIONS_FOLDER}/`))
-    .filter((o) => o.key.endsWith('.json'))
-    .slice(0, MAX_ANNOTATION_FILES);
+  const [listed, idx] = await Promise.all([
+    listAll(env, `${ANNOTATIONS_FOLDER}/`),
+    readJsonFile(ANN_INDEX_KEY, env, emptyAnnIndex).catch(() => ({ data: emptyAnnIndex(), etag: null })),
+  ]);
+  const index = idx.data;
+  const files = listed.filter((o) => o.key.endsWith('.json'));
+  const live = new Set(files.map((f) => f.key));
 
-  const items: Record<string, unknown>[] = [];
-  for (let i = 0; i < files.length; i += 10) {
-    await Promise.all(
-      files.slice(i, i + 10).map(async (o) => {
-        const obj = await env.PDF_BUCKET.get(o.key);
-        if (!obj) return;
-        try {
-          const data = JSON.parse(await obj.text()) as AnnotationsFile;
-          const docId =
-            typeof data.pdfId === 'string' && data.pdfId
-              ? data.pdfId
-              : o.key.slice(ANNOTATIONS_FOLDER.length + 1).replace(/\.json$/i, '.pdf');
-          for (const a of Object.values(data.annotations ?? {})) {
-            if (!a || a.deleted) continue;
-            const raw = (a.data as { color?: unknown } | undefined)?.color;
-            items.push({
-              docId,
-              folder: folderOf(docId),
-              docName: docId.split('/').pop()!.replace(/\.pdf$/i, ''),
-              id: a.id,
-              page: a.page,
-              type: a.type,
-              text: a.text,
-              note: a.note,
-              color: typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw) ? raw : null,
-              created: a.created,
-              modified: a.modified,
-            });
-          }
-        } catch {
-          /* one unreadable file must not hide everyone else's annotations */
-        }
-      }),
-    );
+  let dirty = false;
+  for (const k of Object.keys(index.files)) {
+    if (!live.has(k)) {
+      delete index.files[k];
+      dirty = true;
+    }
   }
 
-  items.sort((a, b) => Date.parse(String(b.modified)) - Date.parse(String(a.modified)));
-  return json({ total: items.length, items: items.slice(0, MAX_ANNOTATION_ITEMS) }, cors);
-}
+  const stale = files.filter((f) => index.files[f.key]?.etag !== f.etag);
+  const batch = stale.slice(0, ANN_INDEX_BATCH);
+  for (let i = 0; i < batch.length; i += 10) {
+    await Promise.all(
+      batch.slice(i, i + 10).map(async (o) => {
+        const obj = await env.PDF_BUCKET.get(o.key);
+        if (!obj) return;
+        let docId = o.key.slice(ANNOTATIONS_FOLDER.length + 1).replace(/\.json$/i, '.pdf');
+        let items: IndexedAnnotation[] = [];
+        try {
+          const data = JSON.parse(await obj.text()) as AnnotationsFile;
+          if (typeof data.pdfId === 'string' && data.pdfId) docId = data.pdfId;
+          items = Object.values(data.annotations ?? {})
+            .filter((a) => a && !a.deleted)
+            .map((a) => {
+              const raw = (a.data as { color?: unknown } | undefined)?.color;
+              return {
+                id: a.id,
+                page: a.page,
+                type: a.type,
+                text: a.text,
+                note: a.note,
+                color: typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw) ? raw : null,
+                created: a.created,
+                modified: a.modified,
+              };
+            });
+        } catch {
+          /* an unreadable file is indexed as empty so it is not retried on every request */
+        }
+        index.files[o.key] = { etag: obj.etag, docId, items };
+      }),
+    );
+    dirty = true;
+  }
+  if (dirty) {
+    await env.PDF_BUCKET.put(ANN_INDEX_KEY, JSON.stringify(index), { httpMetadata: { contentType: 'application/json' } });
+  }
 
+  const items: Record<string, unknown>[] = [];
+  for (const entry of Object.values(index.files)) {
+    for (const a of entry.items) {
+      items.push({
+        docId: entry.docId,
+        folder: folderOf(entry.docId),
+        docName: entry.docId.split('/').pop()!.replace(/\.pdf$/i, ''),
+        ...a,
+      });
+    }
+  }
+  items.sort((a, b) => Date.parse(String(b.modified)) - Date.parse(String(a.modified)));
+  return json({ total: items.length, items: items.slice(0, MAX_ANNOTATION_ITEMS), pending: stale.length - batch.length }, cors);
+}
 
 // ---------------------------------------------------------------- library extras (trash, move, tags, reading, covers, versions)
 
@@ -767,9 +906,31 @@ async function purgeExpiredTrash(items: TrashItem[], env: Env): Promise<TrashIte
   return keep;
 }
 
+/** A book is gone for good: drop its per-book reading time and clear quote links that pointed at it. */
+async function forgetBookEverywhere(key: string, env: Env): Promise<void> {
+  await mutateJsonFile(READING_KEY, env, emptyReading, (r) => {
+    delete r.docs[key];
+    for (const day of Object.keys(r.dayDocs ?? {})) {
+      delete r.dayDocs![day][key];
+      if (Object.keys(r.dayDocs![day]).length === 0) delete r.dayDocs![day];
+    }
+  }).catch((e) => console.error('reading cleanup failed', e));
+  await mutateJsonFile(QUOTES_KEY, env, emptyQuotes, (f) => {
+    for (const q of f.quotes) if (q.bookKey === key) q.bookKey = ''; // the quote itself stays: you chose to keep it
+  }).catch((e) => console.error('quotes cleanup failed', e));
+}
+
 async function purgeTrashItem(id: string, env: Env): Promise<number> {
+  const manifest = await env.PDF_BUCKET.get(`${TRASH_FOLDER}/${id}/item.json`);
+  let key: string | null = null;
+  try {
+    key = manifest ? (JSON.parse(await manifest.text()) as TrashItem).key : null;
+  } catch {
+    /* unreadable manifest: still delete the files */
+  }
   const keys = (await listAll(env, `${TRASH_FOLDER}/${id}/`)).map((o) => o.key);
   await deleteKeys(env, keys);
+  if (key) await forgetBookEverywhere(key, env);
   return keys.length;
 }
 
@@ -1272,12 +1433,18 @@ function sanitizeOps(body: unknown): AnnotationOp[] {
         text: clip(o.text, MAX_ANNOTATION_TEXT),
         note: clip(o.note, MAX_ANNOTATION_TEXT),
         data: data as Record<string, unknown>,
+        baked: o.baked === true ? true : undefined,
       };
     }
     throw new HttpError(400, 'Unknown operation');
   });
 }
 
+/**
+ * Applies the client's changes. A deleted annotation is removed from the file completely (its entry and its
+ * change-log lines). The one exception is an annotation that is part of the PDF file itself: it would come
+ * back from the PDF on the next load, so only a tiny id-only marker is kept for it.
+ */
 function applyAnnotationOps(file: AnnotationsFile, ops: AnnotationOp[]): void {
   const now = new Date().toISOString();
   file.rev += 1;
@@ -1286,6 +1453,7 @@ function applyAnnotationOps(file: AnnotationsFile, ops: AnnotationOp[]): void {
   for (const op of ops) {
     const existing = file.annotations[op.id];
     if (op.op === 'upsert') {
+      const baked = op.baked ?? existing?.baked;
       file.annotations[op.id] = {
         id: op.id,
         page: op.page,
@@ -1295,15 +1463,28 @@ function applyAnnotationOps(file: AnnotationsFile, ops: AnnotationOp[]): void {
         data: op.data,
         created: existing?.created ?? now,
         modified: now,
+        ...(baked ? { baked: true } : {}),
       };
-    } else if (existing) {
-      existing.deleted = true;
-      existing.modified = now;
+      file.log.push({ rev: file.rev, op: op.op, id: op.id, at: now });
+    } else if (existing && !existing.baked) {
+      // Created in this app: nothing else knows about it, so remove every trace.
+      delete file.annotations[op.id];
+      file.log = file.log.filter((e) => e.id !== op.id);
     } else {
-      // Tombstone for an id we never stored (e.g. an annotation baked into the PDF): keeps it deleted.
-      file.annotations[op.id] = { id: op.id, page: 0, type: '', text: '', note: '', data: {}, created: now, modified: now, deleted: true };
+      // Part of the PDF itself (or unknown): keep only an id-only marker so it stays deleted.
+      file.annotations[op.id] = { id: op.id, page: existing?.page ?? 0, type: '', text: '', note: '', data: {}, created: existing?.created ?? now, modified: now, deleted: true, baked: true };
+      file.log = file.log.filter((e) => e.id !== op.id);
     }
-    file.log.push({ rev: file.rev, op: op.op, id: op.id, at: now });
+  }
+
+  // Shrink markers left behind by earlier versions (they kept the full text and data of what was deleted).
+  for (const rec of Object.values(file.annotations)) {
+    if (rec.deleted && (rec.text || rec.note || Object.keys(rec.data).length > 0)) {
+      rec.text = '';
+      rec.note = '';
+      rec.data = {};
+      rec.type = '';
+    }
   }
   if (file.log.length > MAX_ANNOTATION_LOG) file.log = file.log.slice(-MAX_ANNOTATION_LOG);
 }

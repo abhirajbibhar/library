@@ -24,15 +24,46 @@ function loadPdfJs(): Promise<any> {
   return loader;
 }
 
-/** Renders page 1 of a PDF (a local File, or one of our documents by URL) to a JPEG. */
-export async function renderCover(source: File | string): Promise<Blob> {
+export interface PdfDetails {
+  author?: string;
+  description?: string;
+  language?: string;
+}
+
+const GENERIC_AUTHOR = /^(unknown|anonymous|admin|administrator|user|owner|author|pdf|scanner|scan|microsoft|adobe|acrobat|word|libreoffice|writer)/i;
+
+function clean(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
+}
+
+/** Title, author and so on that the PDF file itself declares. Only values that look real are returned. */
+function detailsFrom(meta: { info?: Record<string, unknown>; metadata?: { get?: (k: string) => unknown } } | null): PdfDetails {
+  const info = meta?.info ?? {};
+  const out: PdfDetails = {};
+  const author = clean(info.Author, 120);
+  if (author.length >= 2 && !GENERIC_AUTHOR.test(author)) out.author = author;
+  const subject = clean(info.Subject, 1000);
+  if (subject.length >= 20) out.description = subject; // short subjects are usually just the title again
+  const language = clean(info.Language ?? meta?.metadata?.get?.('dc:language'), 40);
+  if (language) out.language = language;
+  return out;
+}
+
+async function openPdf(source: File | string) {
   const pdfjs = await loadPdfJs();
   const task =
     typeof source === 'string'
       ? pdfjs.getDocument({ url: source, withCredentials: true })
       : pdfjs.getDocument({ data: new Uint8Array(await source.arrayBuffer()) });
-  const pdf = await task.promise;
+  return task.promise;
+}
+
+/** Reads a PDF once and returns what the file says about itself, plus a JPEG of page 1 (unless skipCover). */
+export async function inspectPdf(source: File | string, opts: { skipCover?: boolean } = {}): Promise<{ cover: Blob | null; details: PdfDetails }> {
+  const pdf = await openPdf(source);
   try {
+    const details = detailsFrom(await pdf.getMetadata().catch(() => null));
+    if (opts.skipCover) return { cover: null, details };
     const page = await pdf.getPage(1);
     const base = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: COVER_WIDTH / base.width });
@@ -44,12 +75,22 @@ export async function renderCover(source: File | string): Promise<Blob> {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport }).promise;
-    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
-    if (!blob) throw new Error('Could not create the cover image');
-    return blob;
+    const cover: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    if (!cover) throw new Error('Could not create the cover image');
+    return { cover, details };
   } finally {
     void pdf.destroy();
   }
+}
+
+/** Renders page 1 of a PDF (a local File, or one of our documents by URL) to a JPEG. */
+export async function renderCover(source: File | string): Promise<Blob> {
+  return (await inspectPdf(source)).cover!;
+}
+
+/** Author, description and language from a stored PDF (reads only the parts of the file it needs). */
+export async function readPdfDetails(key: string): Promise<PdfDetails> {
+  return (await inspectPdf(`${API_BASE}/documents/${encodeURIComponent(key)}`, { skipCover: true })).details;
 }
 
 /** Draws the cover from the stored PDF and saves it. Throws if the CDN or the PDF is unreachable. */
