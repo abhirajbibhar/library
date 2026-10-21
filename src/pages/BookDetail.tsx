@@ -181,9 +181,9 @@ function EditDetails({ book, pdfKey, onClose, onSave }: { pdfKey: string; book: 
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => void fillFromPdf()} disabled={reading} className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-100 rounded-md text-xs font-medium transition-colors">
-            {reading ? 'Reading…' : 'Fill from PDF'}
+            {reading ? 'Reading the PDF…' : 'Fill from PDF'}
           </button>
-          {readNote && <span role="status" className="text-xs text-gray-400">{readNote}</span>}
+          {readNote ? <span role="status" className="text-xs text-gray-400">{readNote}</span> : <span className="text-xs text-gray-500">Downloads the PDF once to read it</span>}
         </div>
         <label className="block"><span className="mute mb-1 block">Author</span><span className="field"><input value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={120} /></span></label>
         <label className="block"><span className="mute mb-1 block">Description</span>

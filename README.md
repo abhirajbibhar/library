@@ -341,16 +341,16 @@ Old `#/viewer/<key>` links still work (they forward to the reader).
 - `DELETE /api/documents/<key>` moves a book to the trash (needs an `X-Confirm-Delete` header naming the key). `GET /api/trash`, `POST /api/trash/<id>/restore`, `DELETE /api/trash/<id>`, `DELETE /api/trash` (header `X-Confirm-Delete: empty-trash`).
 - `PATCH /api/state/<key>` sets `{ favorite, tags, meta }`. `GET|PUT /api/covers/<key>`. `GET /api/versions/<key>`, `POST /api/versions/<key>/restore`.
 
-Covers are drawn in the browser with pdf.js, loaded on demand from jsDelivr, so adding books works offline-first only for the upload itself.
+Covers are drawn in the browser by the same PDFium engine the reader uses (`@embedpdf/engines`), so there is no second PDF library and nothing is loaded from a CDN.
 
 ### Security (recommended)
 
-Put the whole site behind Cloudflare Access. To also make the **API itself** refuse requests that did not pass Access (so a misconfigured Access policy can never expose your library), set two Worker variables (Settings → Variables, or `[vars]` in `wrangler.toml`):
+Put the whole site behind Cloudflare Access. To also make the **API itself** refuse requests that did not pass Access (so a misconfigured Access policy can never expose your library), add two **Secrets** in the Cloudflare dashboard (Workers & Pages → library → Settings → Variables and Secrets → Add). Nothing goes in the repository:
 
-- `ACCESS_TEAM_DOMAIN`: your team domain, e.g. `myteam.cloudflareaccess.com`
-- `ACCESS_AUD`: the Access application's "Application Audience (AUD) Tag"
+- `ACCESS_TEAM_DOMAIN`: Zero Trust → Settings → General → Team domain, e.g. `myteam.cloudflareaccess.com`
+- `ACCESS_AUD`: Zero Trust → Access → Applications → your app → Overview → "Application Audience (AUD) Tag"
 
-With both set, every `/api/*` request must carry a valid Access token (signature, issuer, audience and expiry are verified). Without them the API stays open so local development works, and **Settings → Security** tells you which mode you are in (`GET /api/session`).
+`keep_vars = true` in `wrangler.toml` makes GitHub deploys keep what you set in the dashboard. With both set, every `/api/*` request must carry a valid Access token (signature, issuer, audience and expiry are verified). Without them the API stays open so local development works, and **Settings → Security** tells you which mode you are in (`GET /api/session`).
 
 ### Offline reading
 
@@ -368,7 +368,7 @@ The site installs as a desktop app:
 
 ### Book details from the PDF
 
-When you add a book, the author, subject and language the PDF declares are filled in automatically (only values that look real). In **Edit details**, "Fill from PDF" does the same for a book already in the library and never overwrites what you typed.
+When you add a book, the author, subject and language the PDF declares are read by the same engine and filled in automatically (only values that look real). In **Edit details**, "Fill from PDF" does the same for a book already in the library and never overwrites what you typed.
 
 Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` in `wrangler.toml`).
 

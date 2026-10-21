@@ -142,7 +142,7 @@ export default function Settings() {
       {/* Data */}
       <Section icon={<Download className="w-5 h-5 text-purple-400" />} tint="bg-purple-500/10" title="Your data" subtitle="Covers, exports and the trash">
         <div className="space-y-3">
-          <ActionRow icon={<ImageIcon className="w-4 h-4" />} title="Draw missing covers" hint={coverProgress ?? (missing.length ? `${plural(missing.length, 'book')} without a cover` : 'Every book has a cover')} onClick={() => void drawCovers()} disabled={!!coverProgress || missing.length === 0} label="Draw" />
+          <ActionRow icon={<ImageIcon className="w-4 h-4" />} title="Draw missing covers" hint={coverProgress ?? (missing.length ? `${plural(missing.length, 'book')} without a cover · each is downloaded once` : 'Every book has a cover')} onClick={() => void drawCovers()} disabled={!!coverProgress || missing.length === 0} label="Draw" />
           <ActionRow icon={<Download className="w-4 h-4" />} title="Export all notes and highlights" hint={`${plural(allAnnotations.length, 'annotation')}`} onClick={() => downloadText('annotations.md', annotationsToMarkdown(allAnnotations, 'All annotations'), 'text/markdown')} disabled={allAnnotations.length === 0} label="Markdown" />
           <ActionRow icon={<Download className="w-4 h-4" />} title="Export as a spreadsheet" hint="Opens in Excel, Numbers and Google Sheets" onClick={() => downloadText('annotations.csv', annotationsToCsv(allAnnotations), 'text/csv')} disabled={allAnnotations.length === 0} label="CSV" />
           <Link to="/trash" className="flex items-center gap-3 p-3 rounded-md bg-gray-800/50 hover:bg-gray-800 transition-colors">
@@ -189,7 +189,7 @@ export default function Settings() {
         ) : (
           <div className="text-sm text-gray-300 space-y-2">
             <p className="text-amber-300 font-medium">The API isn’t checking sign-in yet.</p>
-            <p className="text-gray-400">If Cloudflare Access were ever turned off for this site, anyone with the address could read and delete your library. To lock it in the Worker too, add two variables to the Worker (Settings → Variables) or to <code className="text-gray-300">wrangler.toml</code>:</p>
+            <p className="text-gray-400">If Cloudflare Access were ever turned off for this site, anyone with the address could read and delete your library. To lock it in the Worker too, add two secrets in the Cloudflare dashboard (your Worker → Settings → Variables and Secrets):</p>
             <ul className="text-xs text-gray-400 list-disc pl-5 space-y-1"><li><code className="text-gray-300">ACCESS_TEAM_DOMAIN</code>: your team domain, like <code className="text-gray-300">myteam.cloudflareaccess.com</code></li><li><code className="text-gray-300">ACCESS_AUD</code>: the Access application’s “Application Audience (AUD) Tag”</li></ul>
           </div>
         )}

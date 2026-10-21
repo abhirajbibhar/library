@@ -2,6 +2,10 @@ name = "library"
 main = "workers/worker.ts"
 compatibility_date = "2026-01-01"
 
+# Keep variables and secrets you set in the Cloudflare dashboard when this Worker is deployed from GitHub.
+# Without this, a deploy replaces the dashboard's variables with whatever is in this file.
+keep_vars = true
+
 # `wrangler deploy` (and `wrangler dev`) first runs this to build the frontend into dist/,
 # so a plain `npx wrangler deploy` - e.g. from Cloudflare's GitHub integration - ships site + API in one go.
 [build]
@@ -24,17 +28,11 @@ run_worker_first = ["/api/*"]
 binding = "PDF_BUCKET"
 bucket_name = "baws"
 
-# Optional settings. Uncomment the [vars] line and the ones you need.
+# SECURITY (recommended). Set these in the dashboard, NOT in this file, so nothing private is committed:
+# Workers & Pages -> library -> Settings -> Variables and Secrets -> Add (type "Secret"):
+#   ACCESS_TEAM_DOMAIN  your Zero Trust team domain, e.g. myteam.cloudflareaccess.com
+#   ACCESS_AUD          the Access application's "Application Audience (AUD) Tag"
+# With both set, the API refuses any request that did not pass Cloudflare Access.
+# Settings -> Security in the app shows whether it is on.
 #
-# SECURITY (recommended): make the API refuse any request that did not pass Cloudflare Access, even if Access is
-# ever switched off or misconfigured for the site. In Zero Trust -> Access -> Applications -> your app:
-#   ACCESS_TEAM_DOMAIN = your team domain, e.g. "myteam.cloudflareaccess.com"
-#   ACCESS_AUD         = the application's "Application Audience (AUD) Tag"
-# Settings shows whether this is on.
-#
-# CORS: only needed if another origin calls the API (default is "*").
-#
-# [vars]
-# ACCESS_TEAM_DOMAIN = "myteam.cloudflareaccess.com"
-# ACCESS_AUD = "paste-the-aud-tag-here"
-# ALLOWED_ORIGIN = "https://library.abhirajbibhar.workers.dev"
+# ALLOWED_ORIGIN is not needed: the site and the API share one origin.
