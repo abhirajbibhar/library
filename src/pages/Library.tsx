@@ -1,9 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useLibraryStore } from '../store';
-import BookCard from '../components/BookCard';
+import BookGrid from '../components/BookGrid';
 import Dropdown from '../components/Dropdown';
-import Menu from '../components/Menu';
 import UploadModal from '../components/UploadModal';
 import { modKey } from '../lib/platform';
 import { useBookActions } from '../hooks/useBookActions';
@@ -19,11 +18,13 @@ const sortOptions = [
 ];
 
 export default function Library() {
-  const navigate = useNavigate();
   const { books, folders, searchQuery, setSearchQuery, activeFilter, setActiveFilter } = useLibraryStore();
   const { menuFor, dialog } = useBookActions();
   const [params] = useSearchParams();
   const searchRef = useRef<HTMLInputElement>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState('Recently Added');
+  const [showUploadModal, setShowUploadModal] = useState(params.has('upload'));
   const searchStamp = params.get('search');
   const uploadStamp = params.get('upload');
   useEffect(() => {
@@ -32,9 +33,6 @@ export default function Library() {
   useEffect(() => {
     if (uploadStamp) setShowUploadModal(true); // also when PDFs were opened with the installed app
   }, [uploadStamp]);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [sortBy, setSortBy] = useState('Recently Added');
-  const [showUploadModal, setShowUploadModal] = useState(params.has('upload'));
 
   // Filter options: everything, favourites, then each folder by its name
   const collectionOptions = useMemo(() => [
@@ -43,12 +41,15 @@ export default function Library() {
     ...folders.map(f => ({ value: `folder:${f.name}`, label: f.name })),
   ], [folders]);
 
+  // A remembered filter can point at a folder that no longer exists; treat that as "All Books"
+  const filter = collectionOptions.some((o) => o.value === activeFilter) ? activeFilter : 'all';
+
   const filteredBooks = useMemo(() => {
     let result = [...books];
 
     // Filter by search
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
       result = result.filter(b => 
         b.title.toLowerCase().includes(q) || 
         b.author.toLowerCase().includes(q) ||
@@ -58,8 +59,8 @@ export default function Library() {
     }
 
     // Filter by collection
-    if (activeFilter === 'fav') result = result.filter(b => b.favorite);
-    else if (activeFilter.startsWith('folder:')) result = result.filter(b => b.folder === activeFilter.slice(7));
+    if (filter === 'fav') result = result.filter(b => b.favorite);
+    else if (filter.startsWith('folder:')) result = result.filter(b => b.folder === filter.slice(7));
 
     // Sort
     switch (sortBy) {
@@ -67,7 +68,8 @@ export default function Library() {
         result.sort((a, b) => a.title.localeCompare(b.title));
         break;
       case 'Author A-Z':
-        result.sort((a, b) => a.author.localeCompare(b.author));
+        // Books without an author go last instead of crowding the top of the list
+        result.sort((a, b) => Number(!a.author) - Number(!b.author) || a.author.localeCompare(b.author));
         break;
       case 'Progress':
         result.sort((a, b) => b.progress - a.progress);
@@ -83,7 +85,7 @@ export default function Library() {
     }
 
     return result;
-  }, [books, searchQuery, activeFilter, sortBy]);
+  }, [books, searchQuery, filter, sortBy]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -123,7 +125,7 @@ export default function Library() {
           {/* Collection Filter Dropdown */}
           <Dropdown
             options={collectionOptions}
-            value={activeFilter}
+            value={filter}
             onChange={setActiveFilter}
             className="flex-1 min-w-0 sm:flex-none sm:min-w-[180px]"
           />
@@ -138,22 +140,18 @@ export default function Library() {
 
           {/* View toggle (Grid / List) — same compact group at every width */}
           <div className="flex items-center gap-0.5 bg-gray-900 border border-gray-800 rounded-md p-1 shrink-0">
-            <button
-              onClick={() => setViewMode('grid')}
-              aria-label="Grid view"
-              title="Grid view"
-              className={`p-2 rounded-sm transition-colors ${viewMode === 'grid' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              aria-label="List view"
-              title="List view"
-              className={`p-2 rounded-sm transition-colors ${viewMode === 'list' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              <List className="w-4 h-4" />
-            </button>
+            {([['grid', Grid, 'Grid view'], ['list', List, 'List view']] as const).map(([mode, ViewIcon, label]) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                aria-label={label}
+                aria-pressed={viewMode === mode}
+                title={label}
+                className={`p-2 rounded-sm transition-colors ${viewMode === mode ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                <ViewIcon className="w-4 h-4" />
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -164,46 +162,15 @@ export default function Library() {
           <p className="text-gray-500 text-lg">No books found</p>
           <p className="text-gray-600 text-sm mt-2">Try adjusting your search or filters</p>
         </div>
-      ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-          {filteredBooks.map(book => (
-            <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
-          ))}
-        </div>
       ) : (
-        <div className="space-y-2">
-          {filteredBooks.map(book => (
-            <div
-              key={book.id}
-              onClick={() => navigate(`/book/${book.id}`)}
-              className="flex items-center gap-4 p-4 bg-gray-900 rounded-md border border-gray-800 hover:border-gray-700 cursor-pointer transition-colors"
-            >
-              <div className="w-12 h-12 rounded-md overflow-hidden flex items-center justify-center text-xl font-bold text-white/40 flex-shrink-0 bg-gray-800">
-                {book.cover ? <img src={book.cover} alt="" loading="lazy" className="w-full h-full object-cover" /> : book.title.charAt(0)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-medium text-white truncate">{book.title}</h3>
-                <p className="text-xs text-gray-400">{book.author ? `${book.author} · ` : ''}{book.genre}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs text-gray-400">{book.pages ? `${book.pages} pages` : 'Not opened yet'}</p>
-                {book.progress > 0 && (
-                  <p className="text-xs text-blue-400">{book.progress}% read</p>
-                )}
-              </div>
-              <div className="shrink-0 -mr-2" onClick={(e) => e.stopPropagation()}>
-                <Menu label={`Options for ${book.title}`} entries={menuFor(book)} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <BookGrid books={filteredBooks} menuFor={menuFor} view={viewMode} />
       )}
 
       {/* Upload Modal */}
       {showUploadModal && (
         <UploadModal
           onClose={() => setShowUploadModal(false)}
-          defaultFolder={activeFilter.startsWith('folder:') ? activeFilter.slice(7) : undefined}
+          defaultFolder={filter.startsWith('folder:') ? filter.slice(7) : undefined}
         />
       )}
       {dialog}

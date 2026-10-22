@@ -4,18 +4,12 @@ import { useLibraryStore, bookIdFor } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
 import FormDialog from '../components/FormDialog';
 import Menu from '../components/Menu';
-import { coverColor, formatDay, formatDuration } from '../lib/format';
+import { formatDay, formatDuration, readingStatus } from '../lib/format';
+import AnnotationItem from '../components/AnnotationItem';
+import BookCover from '../components/BookCover';
 import { readPdfDetails } from '../lib/cover';
 import { useOffline } from '../lib/offline';
-import { Play, Star, Calendar, FileText, Globe, Hash, Highlighter, StickyNote, Clock, Folder, Pencil, MoreHorizontal } from 'lucide-react';
-
-/** Reading status as plain words: Not started / Reading / Finished. */
-function bookStatus(b: { progress: number; lastReadAt?: string }): string {
-  if (b.progress >= 100) return 'Finished';
-  if (b.progress > 0) return 'Reading';
-  if (b.lastReadAt) return 'Started';
-  return 'Not started';
-}
+import { Play, Star, Calendar, CalendarPlus, FileText, Globe, Hash, Clock, Folder, Pencil } from 'lucide-react';
 
 export default function BookDetail() {
   const { id } = useParams();
@@ -42,22 +36,18 @@ export default function BookDetail() {
 
   const highlights = annotations.filter(a => a.type === 'highlight');
   const notes = annotations.filter(a => a.type === 'note');
+  const recent = [...annotations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       {/* Hero */}
       <div className="flex flex-col md:flex-row gap-8">
-        <div className="w-44 sm:w-56 md:w-64 mx-auto md:mx-0 aspect-[5/7] rounded-md flex items-center justify-center flex-shrink-0 relative overflow-hidden" style={{ backgroundColor: book.cover ? '#1f2937' : coverColor(book.title) }}>
-          {book.cover ? (
-            <img src={book.cover} alt={`Cover of ${book.title}`} className="absolute inset-0 w-full h-full object-contain" />
-          ) : (
-            <div className="text-8xl font-bold text-white/25 select-none">{book.title.charAt(0)}</div>
-          )}
-          {/* Progress lives in the page count now, so the cover only carries the % chip */}
+        <BookCover book={book} fit="contain" alt={`Cover of ${book.title}`} letterClassName="text-8xl" className="w-44 sm:w-56 md:w-64 mx-auto md:mx-0 aspect-[5/7] rounded-md shrink-0">
+          {/* Pages read live in the page count, so the cover only carries the % chip */}
           {book.progress > 0 && (
             <div className="absolute bottom-4 right-4 px-3 py-1 rounded-sm bg-black/60 text-white/90 text-sm font-bold backdrop-blur-sm">{book.progress}%</div>
           )}
-        </div>
+        </BookCover>
 
         <div className="flex-1 space-y-4 min-w-0">
           <div className="flex items-start gap-2">
@@ -106,7 +96,7 @@ export default function BookDetail() {
               icon={<Clock className="w-4 h-4" />}
               label="Time read"
               value={formatDuration(book.readingSeconds)}
-              sub={`${bookStatus(book)}${book.lastReadAt ? ` · last read ${formatDay(book.lastReadAt).toLowerCase()}` : ''}`}
+              sub={`${readingStatus(book)?.label ?? 'Not started'}${book.lastReadAt ? ` · last read ${formatDay(book.lastReadAt).toLowerCase()}` : ''}`}
             />
           </div>
 
@@ -129,19 +119,28 @@ export default function BookDetail() {
         )}
       </div>
 
-      {/* Annotations */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <AnnotationCard icon={<Highlighter className="w-5 h-5 text-yellow-400" />} title="Highlights" count={highlights.length} items={highlights.slice(0, 2).map(h => h.content)} color="yellow" />
-        <AnnotationCard icon={<StickyNote className="w-5 h-5 text-purple-400" />} title="Notes" count={notes.length} items={notes.slice(0, 2).map(n => n.content)} color="purple" />
-      </div>
-      {annotations.length > 0 && <Link to={`/notes?book=${book.id}`} className="text-sm text-blue-400 hover:text-blue-300">See all {annotations.length} in Notes &amp; Highlights</Link>}
+      {/* Highlights & notes — the three most recent, in the same item design as the Notes page */}
+      <section className="bg-gray-900 rounded-md border border-gray-800 p-6" aria-labelledby="book-annotations">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 id="book-annotations" className="text-lg font-semibold text-white">
+            Highlights &amp; notes
+            <span className="ml-2 text-sm font-normal text-gray-500">{highlights.length} highlights · {notes.length} notes</span>
+          </h2>
+          {annotations.length > 0 && <Link to={`/notes?book=${book.id}`} className="text-sm text-blue-400 hover:text-blue-300 shrink-0">See all</Link>}
+        </div>
+        {recent.length > 0 ? (
+          <div className="space-y-4">{recent.map(a => <AnnotationItem key={a.id} annotation={a} compact />)}</div>
+        ) : (
+          <p className="text-sm text-gray-500">None yet. Highlight text or add a note while reading.</p>
+        )}
+      </section>
 
       {/* File */}
-      <div className="bg-gray-900/50 rounded-xl border border-gray-800/50 p-4">
+      <div className="bg-gray-900/50 rounded-md border border-gray-800/50 p-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
           <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{book.r2Key}</span>
           <span>Size: {book.fileSize}</span>
-          <span><MoreHorizontal className="w-3 h-3 inline" /> Added {formatDay(book.addedAt)}</span>
+          <span className="flex items-center gap-1"><CalendarPlus className="w-3 h-3" />Added {formatDay(book.addedAt)}</span>
         </div>
       </div>
 
@@ -215,23 +214,6 @@ function MetaItem({ icon, label, value, sub }: { icon: React.ReactNode; label: s
         <p className="text-sm text-white font-medium truncate"><span className="sr-only sm:hidden">{label}: </span>{value}</p>
         {sub && <p className="text-xs text-gray-500 truncate">{sub}</p>}
       </div>
-    </div>
-  );
-}
-
-function AnnotationCard({ icon, title, count, items, color }: { icon: React.ReactNode; title: string; count: number; items: string[]; color: string }) {
-  const borderColors: Record<string, string> = { yellow: 'border-yellow-500/20', purple: 'border-purple-500/20' };
-  return (
-    <div className={`bg-gray-900 rounded-xl border ${borderColors[color]} p-4`}>
-      <div className="flex items-center justify-between mb-3" title={title}>
-        <div className="flex items-center gap-2" aria-hidden="true">{icon}</div>
-        <span className="text-sm font-semibold text-white"><span className="sr-only">{title}: </span>{count}</span>
-      </div>
-      {items.length > 0 ? (
-        <div className="space-y-2">{items.map((item, i) => <p key={i} className="text-xs text-gray-400 line-clamp-2 italic">“{item}”</p>)}</div>
-      ) : (
-        <p className="text-xs text-gray-600">None yet</p>
-      )}
     </div>
   );
 }

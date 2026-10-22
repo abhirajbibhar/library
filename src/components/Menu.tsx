@@ -31,9 +31,7 @@ interface MenuProps {
 
 const itemClass = (danger?: boolean) =>
   `flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium focus-ring ${
-    danger
-      ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40'
-      : 'text-gray-900 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700'
+    danger ? 'text-red-400 hover:bg-red-950/40' : 'text-gray-100 hover:bg-gray-700'
   }`;
 
 /** An icon button that opens a small dropdown. Closes on outside click, Escape or after a choice. */
@@ -57,19 +55,6 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
     setPos(style);
   };
 
-  // Keep the open menu glued to its trigger while the page (or any scroll container) moves.
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => toggle();
-    window.addEventListener('resize', onMove);
-    window.addEventListener('scroll', onMove, true);
-    return () => {
-      window.removeEventListener('resize', onMove);
-      window.removeEventListener('scroll', onMove, true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
@@ -82,6 +67,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
         btn.current?.focus();
       }
     };
+    // The menu is fixed-position, so any scroll or resize would leave it floating away from its trigger: close it.
     const onMove = () => setPos(null);
     document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
@@ -109,7 +95,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
         onClick={toggle}
       >
         {trigger ?? <Icon name={icon} />}
-        {badge && <span aria-hidden="true" className="absolute right-2 top-2 h-2 w-2 rounded-full bg-indigo-600 dark:bg-indigo-400" />}
+        {badge && <span aria-hidden="true" className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-400" />}
       </button>
       {open &&
         createPortal(
@@ -118,7 +104,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
             id={menuId}
             role="menu"
             style={pos ?? undefined}
-            className="fixed z-50 max-h-[70vh] min-w-[220px] max-w-[min(320px,calc(100vw-1rem))] overflow-y-auto rounded-xl bg-white p-1.5 text-gray-900 shadow-xl ring-1 ring-gray-900/10 dark:bg-gray-800 dark:text-gray-100 dark:ring-white/15"
+            className="fixed z-50 max-h-[70vh] min-w-[220px] max-w-[min(320px,calc(100vw-1rem))] overflow-y-auto rounded-xl bg-gray-800 p-1.5 text-gray-100 shadow-xl ring-1 ring-white/15"
           >
             {entries.map((entry, i) => {
               if ('heading' in entry) {
@@ -133,7 +119,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
                   {entry.icon && <Icon name={entry.icon} className="h-[18px] w-[18px] shrink-0" />}
                   <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                   {entry.meta && <span className="mute shrink-0 font-normal">{entry.meta}</span>}
-                  {entry.checked && <Icon name="check" className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />}
+                  {entry.checked && <Icon name="check" className="h-4 w-4 shrink-0 text-blue-400" />}
                 </>
               );
               const choose = () => {

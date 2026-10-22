@@ -4,7 +4,7 @@ import { Folder, Plus } from 'lucide-react';
 import { useLibraryStore } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
 import { coverColor, plural } from '../lib/format';
-import BookCard from '../components/BookCard';
+import BookGrid from '../components/BookGrid';
 import Menu from '../components/Menu';
 import UploadModal from '../components/UploadModal';
 
@@ -46,11 +46,7 @@ export default function CollectionDetail() {
         <Menu label="Collection options" entries={menuForFolder(name)} />
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-        {list.map((book) => (
-          <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
-        ))}
-      </div>
+      <BookGrid books={list} menuFor={menuFor} />
 
       {adding && <UploadModal onClose={() => setAdding(false)} defaultFolder={name} />}
       {dialog}

@@ -1,4 +1,4 @@
-import type { PdfDocument } from '../types';
+import type { Book, PdfDocument } from '../types';
 
 export type DocStatus = 'new' | 'reading' | 'done';
 
@@ -88,4 +88,19 @@ export function readingStreak(days: Record<string, number>): number {
     d.setDate(d.getDate() - 1);
   }
   return n;
+}
+
+export type StatusTone = 'finished' | 'reading' | 'started';
+
+const STATUS_CLASS: Record<StatusTone, string> = {
+  finished: 'bg-green-500/15 text-green-300 border-green-500/30',
+  reading: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  started: 'bg-gray-500/15 text-gray-300 border-gray-500/30',
+};
+
+/** One definition of a book's reading status, shared by the card, the list row and the detail page. `null` = not started. */
+export function readingStatus(b: Pick<Book, 'progress' | 'lastReadAt'>): { label: string; tone: StatusTone; className: string } | null {
+  const tone: StatusTone | null = b.progress >= 100 ? 'finished' : b.progress > 0 ? 'reading' : b.lastReadAt ? 'started' : null;
+  if (!tone) return null;
+  return { label: { finished: 'Finished', reading: 'Reading', started: 'Started' }[tone], tone, className: STATUS_CLASS[tone] };
 }

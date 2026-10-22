@@ -72,7 +72,10 @@ A cloud-native personal library and PDF reader for Babasaheb Ambedkar's Writings
 ### 2.3 Components
 | Component | Role |
 |---|---|
-| `BookCard` | Cover + overlay badges + compact meta footer (title, author, folder, progress bar, ⋯ menu) |
+| `BookCard` / `BookRow` | Grid card and list row for a book: cover with rating/favourite/offline marks and a progress bar, then title, author, folder chip and status. The title is a stretched button so the whole card is keyboard-accessible |
+| `BookCover` | The single cover renderer (real image or coloured initial tile, resets its error state when the cover URL changes) |
+| `BookGrid` | Renders a list of books as grid or list; used by Dashboard shelves, Library and Collections |
+| `AnnotationItem` | One highlight or note: colour bar, quoted text, comment, inline edit and inline delete-confirm |
 | `Menu` | Icon-trigger dropdown (portal, fixed positioning, edge-flip, follows scroll/resize, closes on Esc/outside-click) |
 | `Dropdown` | Select-style list (portal, collision-aware placement, internal scroll, checkmark on selection) |
 | `Layout` | App shell described above |

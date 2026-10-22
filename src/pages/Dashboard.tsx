@@ -1,13 +1,16 @@
-import { Link, useNavigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useLibraryStore } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
 import { useFetch } from '../hooks/useFetch';
 import { loadNote, parseNote, summarize, today } from '../lib/notes';
 import { coverColor, formatDuration, localDay, plural } from '../lib/format';
-import BookCard from '../components/BookCard';
+import BookGrid from '../components/BookGrid';
+import type { Book } from '../types';
+import type { MenuEntry } from '../components/Menu';
 import QuoteSection from '../components/QuoteSection';
 import { 
-  BookOpen, TrendingUp, StickyNote, Highlighter, 
+  BookOpen, BookPlus, TrendingUp, StickyNote,
   Flame, Clock, ArrowRight, Sparkles, Folder, Star, Upload, NotebookPen
 } from 'lucide-react';
 
@@ -51,8 +54,23 @@ function TodayPlan() {
   );
 }
 
+/** A titled row of books with a "View all" link; renders nothing when empty. */
+function Shelf({ icon, title, books, menuFor }: { icon: ReactNode; title: string; books: Book[]; menuFor: (b: Book) => MenuEntry[] }) {
+  if (books.length === 0) return null;
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">{icon}{title}</h2>
+        <Link to="/library" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          View all <ArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
+      <BookGrid books={books} menuFor={menuFor} />
+    </section>
+  );
+}
+
 export default function Dashboard() {
-  const navigate = useNavigate();
   const { books, folders, reading, getStats } = useLibraryStore();
   const { menuFor, dialog } = useBookActions();
 
@@ -122,45 +140,8 @@ export default function Dashboard() {
       {/* Today's plan — right before Continue Reading */}
       <TodayPlan />
 
-      {/* Continue Reading */}
-      {continueReading.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-400" />
-              Continue Reading
-            </h2>
-            <Link to="/library" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
-              View all <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-            {continueReading.map(book => (
-              <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Favourites */}
-      {favourites.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-              <Star className="w-5 h-5 text-amber-400" />
-              Favourites
-            </h2>
-            <Link to="/library" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
-              View all <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-            {favourites.map(book => (
-              <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
-            ))}
-          </div>
-        </section>
-      )}
+      <Shelf icon={<Clock className="w-5 h-5 text-blue-400" />} title="Continue Reading" books={continueReading} menuFor={menuFor} />
+      <Shelf icon={<Star className="w-5 h-5 text-amber-400" />} title="Favourites" books={favourites} menuFor={menuFor} />
 
       {/* Empty library */}
       {books.length === 0 && (
@@ -173,23 +154,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Recently Added */}
-      {books.length > 0 && <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-            <Highlighter className="w-5 h-5 text-purple-400" />
-            Recently Added
-          </h2>
-          <Link to="/library" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
-            View all <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-          {recentlyAdded.map(book => (
-            <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
-          ))}
-        </div>
-      </section>}
+      <Shelf icon={<BookPlus className="w-5 h-5 text-purple-400" />} title="Recently Added" books={recentlyAdded} menuFor={menuFor} />
 
       {/* Quick Stats */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -264,7 +229,7 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number | string; color: string }) {
+function StatCard({ icon, label, value, color }: { icon: ReactNode; label: string; value: number | string; color: string }) {
   const colorClasses: Record<string, string> = {
     blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     green: 'bg-green-500/10 text-green-400 border-green-500/20',
