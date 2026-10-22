@@ -86,8 +86,6 @@ export default function Dashboard() {
         <p className="text-gray-400 mt-2 text-sm sm:text-base">Here's your library overview</p>
       </div>
 
-      <TodayPlan />
-
       {/* Quote Section */}
       <QuoteSection />
 
@@ -120,6 +118,9 @@ export default function Dashboard() {
           />
         </Link>
       </div>
+
+      {/* Today's plan — right before Continue Reading */}
+      <TodayPlan />
 
       {/* Continue Reading */}
       {continueReading.length > 0 && (

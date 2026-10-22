@@ -5,9 +5,9 @@ import { readerBridge, useReaderBridge } from '../lib/readerBridge';
 import { LOGOUT_URL } from '../config';
 import { clearOfflineData } from '../lib/offline';
 import { hasMod } from '../lib/platform';
-import { 
-  LayoutDashboard, Library, StickyNote, FolderOpen, 
-  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw, LogOut, NotebookPen
+import {
+  LayoutDashboard, Library, StickyNote, FolderOpen,
+  Settings, Menu, X, ArrowLeft, Flame, Trash2, Quote, RefreshCw, LogOut, NotebookPen, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 
 const navItems = [
@@ -26,8 +26,13 @@ const navItems = [
 const subPages = ['/book/', '/reader/', '/collections/', '/streak/'];
 const FULL_BLEED = ['/reader/']; // the reader brings its own padding and toolbar
 
+const RAIL_KEY = 'baws-sidebar-rail'; // desktop: remember whether the sidebar is collapsed to icons only
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop collapse toggle: when true the sidebar slides out and only its icons remain, giving content more room.
+  const [rail, setRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1');
+  const toggleRail = () => setRail((r) => { localStorage.setItem(RAIL_KEY, r ? '0' : '1'); return !r; });
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const navigate = useNavigate();
 
@@ -108,13 +113,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="h-screen bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
       {/* ── Full-width Header ── */}
       <header className="h-16 flex-shrink-0 bg-gray-900 border-b border-gray-800 flex items-center z-30 relative">
-        {/* Brand section – same width as sidebar so it aligns, hidden on mobile */}
-        <div className="w-64 flex-shrink-0 px-5 flex items-center gap-3 border-r border-gray-800 h-full hidden lg:flex">
+        {/* Brand section – same width as sidebar so it aligns, hidden on mobile; shrinks with the rail */}
+        <div className={`${rail ? 'lg:w-[68px]' : 'w-64'} flex-shrink-0 px-5 lg:px-0 lg:justify-center flex items-center gap-3 border-r border-gray-800 h-full transition-all duration-200 hidden lg:flex`}>
           <Link to="/" className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-md bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-              <Cloud className="w-4.5 h-4.5 text-white" />
-            </div>
-            <div className="min-w-0">
+            {/* App icon: the same favicon.svg used for the browser tab / PWA */}
+            <img src="/favicon.svg" alt="" className="w-9 h-9 rounded-md flex-shrink-0" />
+            <div className={`min-w-0 ${rail ? 'lg:hidden' : ''}`}>
               <h1 className="text-base font-bold text-white truncate">My Library</h1>
               <p lang="or" className="text-[11px] text-gray-500 leading-none mt-0.5 truncate" style={{ fontFamily: "'Noto Sans Oriya', 'Noto Sans', system-ui, sans-serif" }}>ଅଜ୍ଝତ୍ତଂ ଏବ ମଗ୍ଗୋ’ତି</p>
             </div>
@@ -196,13 +200,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           />
         )}
 
-        {/* Sidebar – independent scroll */}
+        {/* Sidebar – independent scroll. On desktop it slides out to an icon-only rail when collapsed. */}
         <aside
           className={`
-            w-64 flex-shrink-0 bg-gray-900 border-r border-gray-800
+            ${rail ? 'lg:w-[68px]' : 'w-64'} flex-shrink-0 bg-gray-900 border-r border-gray-800
             flex flex-col overflow-hidden
             absolute lg:relative inset-y-0 left-0 z-50
-            transform transition-transform duration-200 ease-in-out
+            transform transition-all duration-200 ease-in-out
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           `}
         >
@@ -218,9 +222,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   key={item.path}
                   to={item.path}
                   onClick={() => setSidebarOpen(false)}
+                  title={item.label}
                   className={`
-                    flex items-center gap-3 px-3.5 py-2.5 rounded-md text-sm font-medium
+                    flex items-center gap-3 rounded-md text-sm font-medium
                     transition-all duration-150
+                    ${rail ? 'lg:justify-center lg:gap-0 px-0 py-2.5' : 'px-3.5 py-2.5'}
                     ${isActive
                       ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                       : 'text-gray-400 hover:text-white hover:bg-gray-800'
@@ -228,11 +234,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   `}
                 >
                   <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <span className={`truncate ${rail ? 'lg:hidden' : ''}`}>{item.label}</span>
                 </Link>
               );
             })}
           </nav>
+
+          {/* Collapse / expand toggle — pinned to the bottom of the sidebar, desktop only */}
+          <div className={`hidden lg:flex items-center border-t border-gray-800 px-2 py-2 ${rail ? 'justify-center' : 'justify-end'}`}>
+            <button
+              onClick={toggleRail}
+              aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar to icons'}
+              title={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="p-2 rounded-md text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+            >
+              {rail ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
+          </div>
 
         </aside>
 

@@ -157,66 +157,63 @@ export default function Notes() {
                   : 'bg-purple-500/5 border-purple-500/20 hover:border-purple-500/30'
               }`}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  {/* Type & Book */}
-                  <div className="flex items-center gap-2 mb-2">
-                    {annotation.type === 'highlight' && <Highlighter className="w-3.5 h-3.5 text-yellow-400" />}
-                    {annotation.type === 'note' && <StickyNote className="w-3.5 h-3.5 text-purple-400" />}
-                    <span className="text-xs text-gray-500 capitalize">{annotation.type}</span>
+              <div className="flex flex-col gap-3">
+              {/* Type & Book */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {annotation.type === 'highlight' && <Highlighter className="w-3.5 h-3.5 text-yellow-400" />}
+                {annotation.type === 'note' && <StickyNote className="w-3.5 h-3.5 text-purple-400" />}
+                <span className="text-xs text-gray-500 capitalize">{annotation.type}</span>
+                <span className="text-xs text-gray-600">·</span>
+                <Link to={`/book/${annotation.bookId}`} className="text-xs text-blue-400 hover:text-blue-300 truncate max-w-full">
+                  {getBookTitle(annotation.bookId)}
+                </Link>
+                {annotation.page > 0 && (
+                  <>
                     <span className="text-xs text-gray-600">·</span>
-                    <Link to={`/book/${annotation.bookId}`} className="text-xs text-blue-400 hover:text-blue-300 truncate">
-                      {getBookTitle(annotation.bookId)}
-                    </Link>
-                    {annotation.page > 0 && (
-                      <>
-                        <span className="text-xs text-gray-600">·</span>
-                        <span className="text-xs text-gray-500">Page {annotation.page}</span>
-                      </>
-                    )}
+                    <span className="text-xs text-gray-500">Page {annotation.page}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Content — full width of the card; actions sit on their own row at the right edge */}
+              {editingId === annotation.id ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white resize-none focus:outline-none focus:border-blue-500"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void handleSaveEdit(annotation.id)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                    >
+                      Cancel
+                    </button>
                   </div>
-
-                  {/* Content */}
-                  {editingId === annotation.id ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white resize-none focus:outline-none focus:border-blue-500"
-                        rows={3}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => void handleSaveEdit(annotation.id)}
-                          className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <p className={`text-sm ${annotation.type === 'highlight' ? 'text-yellow-100/80 italic' : 'text-gray-300'} whitespace-pre-line`}>
-                        {annotation.type === 'highlight' ? `“${annotation.content}”` : annotation.content}
-                      </p>
-                      {annotation.type === 'highlight' && annotation.comment && (
-                        <p className="text-sm text-gray-300 mt-2 whitespace-pre-line">{annotation.comment}</p>
-                      )}
-                    </>
-                  )}
-
-                  {/* Date */}
-                  <p className="text-xs text-gray-600 mt-2">{formatDay(annotation.updatedAt)}</p>
                 </div>
+              ) : (
+                <>
+                  <p className={`w-full text-sm ${annotation.type === 'highlight' ? 'text-yellow-100/80 italic' : 'text-gray-300'} whitespace-pre-line break-words`}>
+                    {annotation.type === 'highlight' ? `“${annotation.content}”` : annotation.content}
+                  </p>
+                  {annotation.type === 'highlight' && annotation.comment && (
+                    <p className="w-full text-sm text-gray-300 mt-2 whitespace-pre-line break-words">{annotation.comment}</p>
+                  )}
+                </>
+              )}
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Date & Actions share the bottom row so the text above uses the whole card width */}
+              <div className="flex items-end justify-between gap-3 mt-2">
+                <p className="text-xs text-gray-600 shrink-0">{formatDay(annotation.updatedAt)}</p>
+                <div className="flex items-center gap-1 flex-shrink-0 -mb-1 -mr-1">
                   <Link
                     to={`/reader/${annotation.bookId}?page=${annotation.page}`}
                     className="p-1.5 rounded hover:bg-gray-800 text-gray-500 hover:text-white transition-colors"
@@ -248,6 +245,7 @@ export default function Notes() {
                   </button>
                 </div>
               </div>
+            </div>
             </div>
           ))
         )}

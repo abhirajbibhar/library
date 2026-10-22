@@ -57,6 +57,7 @@ interface Actions {
   // annotations
   updateAnnotation: (id: string, change: { comment: string }) => Promise<void>;
   deleteAnnotation: (id: string) => Promise<void>;
+  dropAnnotationsForDoc: (r2Key: string) => void;
   // quotes you picked (saved to _library/quotes.json)
   saveQuote: (q: Omit<UserQuote, 'id' | 'addedAt'> & { id?: string }) => Promise<void>;
   deleteQuote: (id: string) => Promise<void>;
@@ -272,8 +273,17 @@ const actions: Actions = {
   trashBook: async (id) => {
     const b = bookById(id);
     if (!b) return;
-    await trashDocument(b.r2Key);
+    await trashDocument(b.r2Key); // server moves the PDF with its annotations, cover and backups to the trash
+    // Leave nothing of this book on this device: cached offline copy and in-memory notes/highlights.
+    patch({ annotations: state.annotations.filter((x) => x.r2Key !== b.r2Key) });
+    const { removeOffline, isSavedOffline } = await import('../lib/offline');
+    if (isSavedOffline(b.r2Key)) await removeOffline(b.r2Key).catch(() => {});
     await refresh(true);
+  },
+
+  /** Immediately hides every note/highlight of a document from the app (used when it is deleted). */
+  dropAnnotationsForDoc: (r2Key: string) => {
+    patch({ annotations: state.annotations.filter((x) => x.r2Key !== r2Key) });
   },
 
   updateAnnotation: async (id, change) => {

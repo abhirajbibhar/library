@@ -5,6 +5,7 @@ import { fileNameError, folderNameError, keyOf } from '../lib/names';
 import { allTags } from '../lib/docs';
 import { formatDay, formatSize, plural, viewerPath } from '../lib/format';
 import { removeOffline, saveForOffline, useOffline } from '../lib/offline';
+import { useLibraryStore } from '../store';
 import type { PdfDocument, VersionInfo } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import FormDialog from '../components/FormDialog';
@@ -39,6 +40,14 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const offline = useOffline(); // re-render when books are saved or removed for offline reading
+  const { annotations, dropAnnotationsForDoc } = useLibraryStore();
+
+  /** Everything related to a document that this device keeps locally — dropped the moment it is deleted. */
+  const purgeLocalFor = async (doc: PdfDocument) => {
+    if (offline.has(doc.id)) await removeOffline(doc.id).catch(() => {}); // cached PDF copy
+    // Drop its notes & highlights from the list right away; the server moves them to the trash along with the PDF.
+    if (annotations.some((a) => a.r2Key === doc.id)) dropAnnotationsForDoc(doc.id);
+  };
 
   useEffect(() => {
     if (!notice) return;
@@ -149,7 +158,7 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
     const doc = dlg.doc;
     dialog = (
       <ConfirmDialog title="Delete this document?" confirmLabel="Move to trash" busy={busy} error={error} onCancel={close}
-        onConfirm={() => void run(() => trashDocument(doc.id), { kind: 'doc-removed', doc }, 'Moved to trash')}>
+        onConfirm={() => void run(async () => { await trashDocument(doc.id); await purgeLocalFor(doc); }, { kind: 'doc-removed', doc }, 'Moved to trash')}>
         <b className="text-gray-900 dark:text-gray-100">{doc.name}</b> moves to the trash with its highlights, notes and backups. You can restore it from
         Trash within 30 days.
       </ConfirmDialog>
@@ -162,6 +171,7 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
           for (let i = 0; i < docs.length; i++) {
             setProgress(`Deleting ${i + 1} of ${docs.length}…`);
             await trashDocument(docs[i].id);
+            await purgeLocalFor(docs[i]); // offline copy, notes and highlights go with each book
           }
         }, { kind: 'folder-removed', folder }, 'Folder moved to trash')}>
         <b className="text-gray-900 dark:text-gray-100">{title}</b> and its {plural(docs.length, 'document')} move to the trash. Each can be restored

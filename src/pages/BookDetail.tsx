@@ -9,6 +9,14 @@ import { readPdfDetails } from '../lib/cover';
 import { useOffline } from '../lib/offline';
 import { Play, Star, Calendar, FileText, Globe, Hash, Highlighter, StickyNote, Clock, Folder, Pencil, MoreHorizontal } from 'lucide-react';
 
+/** Reading status as plain words: Not started / Reading / Finished. */
+function bookStatus(b: { progress: number; lastReadAt?: string }): string {
+  if (b.progress >= 100) return 'Finished';
+  if (b.progress > 0) return 'Reading';
+  if (b.lastReadAt) return 'Started';
+  return 'Not started';
+}
+
 export default function BookDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -45,6 +53,7 @@ export default function BookDetail() {
           ) : (
             <div className="text-8xl font-bold text-white/25 select-none">{book.title.charAt(0)}</div>
           )}
+          {/* Progress lives in the page count now, so the cover only carries the % chip */}
           {book.progress > 0 && (
             <div className="absolute bottom-4 right-4 px-3 py-1 rounded-sm bg-black/60 text-white/90 text-sm font-bold backdrop-blur-sm">{book.progress}%</div>
           )}
@@ -81,27 +90,24 @@ export default function BookDetail() {
             <div className="flex flex-wrap gap-2">{book.tags.map(t => <span key={t} className="text-xs px-2 py-1 rounded-sm bg-gray-800 text-gray-300">{t}</span>)}</div>
           )}
 
-          {/* Meta */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <MetaItem icon={<FileText className="w-4 h-4" />} label="Pages" value={book.pages ? String(book.pages) : 'Not opened yet'} />
+          {/* Meta — pages read live inside the page icon; reading time and status share "Time read" */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <MetaItem
+              icon={<FileText className="w-4 h-4" />}
+              label="Pages"
+              value={book.pages ? `${book.lastPage}/${book.pages}` : '—'}
+              sub={book.pages ? `of ${book.pages} pages${book.progress > 0 ? ` · ${book.progress}%` : ''}` : 'Not opened yet'}
+            />
             <MetaItem icon={<Folder className="w-4 h-4" />} label="Folder" value={book.genre} />
             {book.publishedYear ? <MetaItem icon={<Calendar className="w-4 h-4" />} label="Published" value={String(book.publishedYear)} /> : null}
             {book.language ? <MetaItem icon={<Globe className="w-4 h-4" />} label="Language" value={book.language} /> : null}
             {book.isbn ? <MetaItem icon={<Hash className="w-4 h-4" />} label="ISBN" value={book.isbn} /> : null}
-            <MetaItem icon={<Clock className="w-4 h-4" />} label="Time read" value={formatDuration(book.readingSeconds)} />
-          </div>
-
-          {/* Progress */}
-          <div className="bg-gray-900 rounded-md border border-gray-800 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-gray-400">Reading Progress</span>
-              <span className="text-2xl font-bold text-white">{book.progress}%</span>
-            </div>
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${book.progress}%` }} /></div>
-            <p className="text-xs text-gray-500 mt-2">
-              {book.pages ? `Page ${book.lastPage} of ${book.pages}` : 'Progress is saved automatically as you read.'}
-              {book.lastReadAt ? ` · last read ${formatDay(book.lastReadAt).toLowerCase()}` : ''}
-            </p>
+            <MetaItem
+              icon={<Clock className="w-4 h-4" />}
+              label="Time read"
+              value={formatDuration(book.readingSeconds)}
+              sub={`${bookStatus(book)}${book.lastReadAt ? ` · last read ${formatDay(book.lastReadAt).toLowerCase()}` : ''}`}
+            />
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -199,14 +205,15 @@ function EditDetails({ book, pdfKey, onClose, onSave }: { pdfKey: string; book: 
   );
 }
 
-/** Icon and value. The word label only appears from the sm breakpoint up, and is a tooltip/screen-reader label before that. */
-function MetaItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+/** Icon and value, with an optional sub-line. The word label only appears from the sm breakpoint up, and is a tooltip/screen-reader label before that. */
+function MetaItem({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
   return (
     <div className="flex items-center gap-2 min-w-0" title={label}>
       <span className="text-gray-500 shrink-0" aria-hidden="true">{icon}</span>
       <div className="min-w-0">
         <p className="text-xs text-gray-500 hidden sm:block">{label}</p>
         <p className="text-sm text-white font-medium truncate"><span className="sr-only sm:hidden">{label}: </span>{value}</p>
+        {sub && <p className="text-xs text-gray-500 truncate">{sub}</p>}
       </div>
     </div>
   );

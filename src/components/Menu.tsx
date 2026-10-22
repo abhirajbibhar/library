@@ -57,6 +57,19 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
     setPos(style);
   };
 
+  // Keep the open menu glued to its trigger while the page (or any scroll container) moves.
+  useEffect(() => {
+    if (!open) return;
+    const onMove = () => toggle();
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => {
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {

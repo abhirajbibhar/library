@@ -118,60 +118,39 @@ export default function Library() {
           />
         </div>
 
-        {/* Mobile: Grid | Sort Dropdown | List */}
-        {/* Desktop: Collection Dropdown | Sort Dropdown | Grid/List toggle */}
+        {/* One row on mobile and desktop alike: Collection Filter | Sorting | Grid/List toggle */}
         <div className="flex items-center gap-2">
-          {/* Grid toggle - left on mobile, part of group on desktop */}
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`sm:hidden p-2.5 rounded-md border transition-colors ${
-              viewMode === 'grid' 
-                ? 'bg-gray-700 text-white border-gray-600' 
-                : 'bg-gray-900 text-gray-500 border-gray-800'
-            }`}
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-
           {/* Collection Filter Dropdown */}
           <Dropdown
             options={collectionOptions}
             value={activeFilter}
             onChange={setActiveFilter}
-            className="flex-1 sm:flex-none sm:min-w-[180px]"
+            className="flex-1 min-w-0 sm:flex-none sm:min-w-[180px]"
           />
 
-          {/* Sort Dropdown */}
+          {/* Sort Dropdown — visible on mobile too */}
           <Dropdown
             options={sortOptions}
             value={sortBy}
             onChange={setSortBy}
-            className="hidden sm:block sm:min-w-[160px]"
+            className="flex-1 min-w-0 sm:flex-none sm:min-w-[160px]"
           />
 
-          {/* List toggle - right on mobile, part of group on desktop */}
-          <button
-            onClick={() => setViewMode('list')}
-            className={`sm:hidden p-2.5 rounded-md border transition-colors ${
-              viewMode === 'list' 
-                ? 'bg-gray-700 text-white border-gray-600' 
-                : 'bg-gray-900 text-gray-500 border-gray-800'
-            }`}
-          >
-            <List className="w-4 h-4" />
-          </button>
-
-          {/* Desktop view toggle group */}
-          <div className="hidden sm:flex items-center gap-0.5 bg-gray-900 border border-gray-800 rounded-md p-1">
+          {/* View toggle (Grid / List) — same compact group at every width */}
+          <div className="flex items-center gap-0.5 bg-gray-900 border border-gray-800 rounded-md p-1 shrink-0">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-sm ${viewMode === 'grid' ? 'bg-gray-700 text-white' : 'text-gray-500'}`}
+              aria-label="Grid view"
+              title="Grid view"
+              className={`p-2 rounded-sm transition-colors ${viewMode === 'grid' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
             >
               <Grid className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded-sm ${viewMode === 'list' ? 'bg-gray-700 text-white' : 'text-gray-500'}`}
+              aria-label="List view"
+              title="List view"
+              className={`p-2 rounded-sm transition-colors ${viewMode === 'list' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
             >
               <List className="w-4 h-4" />
             </button>
