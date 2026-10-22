@@ -29,15 +29,17 @@ interface MenuProps {
   /** Small dot on the button, e.g. when a filter is active. */
   badge?: boolean;
   buttonClassName?: string;
+  /** Small, tidy popover on every screen size: tighter rows, group labels become thin dividers, no bottom sheet. Used on book cards. */
+  compact?: boolean;
 }
 
 const MOBILE = '(max-width: 639px)';
 const MARGIN = 8;
 
-const itemClass = (danger: boolean | undefined, sheet: boolean) =>
-  `flex w-full items-center gap-3 rounded-lg px-3 text-left font-medium focus-ring ${sheet ? 'min-h-12 text-[15px]' : 'min-h-10 text-sm'} ${
-    danger ? 'text-red-400 hover:bg-red-950/40' : 'text-gray-100 hover:bg-gray-700'
-  }`;
+const itemClass = (danger: boolean | undefined, size: 'sheet' | 'normal' | 'compact') =>
+  `flex w-full items-center text-left font-medium focus-ring ${
+    { sheet: 'min-h-12 gap-3 rounded-lg px-3 text-[15px]', normal: 'min-h-10 gap-3 rounded-lg px-3 text-sm', compact: 'min-h-8 gap-2 rounded-md px-2.5 text-[13px]' }[size]
+  } ${danger ? 'text-red-400 hover:bg-red-950/40' : 'text-gray-100 hover:bg-white/10'}`;
 
 /**
  * An icon button that opens a menu.
@@ -46,7 +48,7 @@ const itemClass = (danger: boolean | undefined, sheet: boolean) =>
  *  - Phones (< sm): a bottom sheet with big tap targets, which also ignores the address bar resizing the viewport.
  *  - Keyboard: focus moves into the menu; ↑ ↓ Home End move between items; Esc closes and returns focus to the button.
  */
-export default function Menu({ label, icon = 'more', entries, align = 'right', trigger, badge, buttonClassName = 'btn-plain' }: MenuProps) {
+export default function Menu({ label, icon = 'more', entries, align = 'right', trigger, badge, buttonClassName = 'btn-plain', compact = false }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [style, setStyle] = useState<CSSProperties | null>(null);
@@ -62,7 +64,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
 
   const toggle = () => {
     if (open) return close();
-    setSheet(window.matchMedia(MOBILE).matches);
+    setSheet(!compact && window.matchMedia(MOBILE).matches);
     setOpen(true);
   };
 
@@ -130,6 +132,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
 
   const renderEntry = (entry: MenuEntry, i: number) => {
     if ('heading' in entry) {
+      if (compact) return i > 0 ? <div key={i} role="separator" className="my-1 border-t border-white/10" /> : null;
       return entry.heading ? (
         <div key={i} className={`mute px-3 pb-1 pt-2.5 text-xs font-semibold uppercase tracking-wide ${i > 0 ? 'mt-1 border-t border-white/10' : ''}`}>{entry.heading}</div>
       ) : (
@@ -138,7 +141,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
     }
     const content = (
       <>
-        {entry.icon && <Icon name={entry.icon} className="h-[18px] w-[18px] shrink-0" />}
+        {entry.icon && <Icon name={entry.icon} className={compact ? 'h-[15px] w-[15px] shrink-0 text-gray-400' : 'h-[18px] w-[18px] shrink-0'} />}
         <span className="min-w-0 flex-1 truncate">{entry.label}</span>
         {entry.meta && <span className="mute shrink-0 font-normal">{entry.meta}</span>}
         {entry.checked && <Icon name="check" className="h-4 w-4 shrink-0 text-blue-400" />}
@@ -148,7 +151,7 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
       if (!entry.keepOpen) close();
       entry.onSelect?.();
     };
-    const cls = itemClass(entry.danger, sheet);
+    const cls = itemClass(entry.danger, sheet ? 'sheet' : compact ? 'compact' : 'normal');
     if (entry.to) return <Link key={i} to={entry.to} role="menuitem" className={cls} onClick={choose}>{content}</Link>;
     if (entry.href) return <a key={i} href={entry.href} role="menuitem" className={cls} onClick={choose}>{content}</a>;
     if (!entry.onSelect) return <div key={i} className="flex min-h-9 items-center gap-3 px-3 text-sm">{content}</div>;
@@ -197,7 +200,9 @@ export default function Menu({ label, icon = 'more', entries, align = 'right', t
               aria-label={label}
               onKeyDown={onMenuKey}
               style={style ?? { visibility: 'hidden', top: 0, left: 0 }}
-              className="fixed z-50 min-w-[220px] max-w-[min(320px,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl bg-gray-800 p-1.5 text-gray-100 shadow-xl ring-1 ring-white/15"
+              className={`animate-fade-in fixed z-50 overflow-y-auto overscroll-contain bg-gray-800 text-gray-100 ring-1 ring-white/15 ${
+                compact ? 'w-max min-w-[160px] max-w-[min(220px,calc(100vw-1rem))] rounded-xl p-1 shadow-lg shadow-black/40' : 'min-w-[220px] max-w-[min(320px,calc(100vw-1rem))] rounded-xl p-1.5 shadow-xl'
+              }`}
             >
               {entries.map(renderEntry)}
             </div>

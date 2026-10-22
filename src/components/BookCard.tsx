@@ -1,7 +1,6 @@
 import { ArrowDownToLine, Star } from 'lucide-react';
 import { useOffline } from '../lib/offline';
 import type { Book } from '../types';
-import { readingStatus } from '../lib/format';
 import BookCover from './BookCover';
 import Menu, { type MenuEntry } from './Menu';
 
@@ -18,19 +17,18 @@ const coverBtn = 'inline-flex size-8 items-center justify-center rounded-full bg
 const hoverOnly = 'sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 aria-expanded:opacity-100';
 
 /**
- * A book as a card: cover on top (rating, favourite and offline marks float over it, a thin progress bar sits on
- * its bottom edge), then title, author, folder and status underneath.
+ * A book as a card: cover on top (rating, favourite and offline marks float over it), then title, author, folder and the percentage read underneath.
  *
  * The title is a real button stretched over the whole card (`after:absolute after:inset-0`), so the card is
  * keyboard-focusable and announced properly, while the star and ⋯ menu are separate controls above it.
  */
 export default function BookCard({ book, onClick, menu, onToggleFavorite }: BookCardProps) {
   const offline = useOffline().has(book.r2Key);
-  const status = readingStatus(book);
   // The folder has its own chip, so the line under the title is the author, or else the tags.
   const subtitle = book.author || book.tags.join(', ');
-  // The star button already covers favourites, so the menu doesn't repeat it
-  const entries = onToggleFavorite ? menu?.filter((e) => !('id' in e && e.id === 'favorite')) : menu;
+  // Clicking the card already opens the book, and the star button covers favourites, so the menu doesn't repeat them
+  const skip = new Set(['open', ...(onToggleFavorite ? ['favorite'] : [])]);
+  const entries = menu?.filter((e) => !('id' in e && e.id && skip.has(e.id)));
   const hasMenu = !!entries && entries.length > 0;
 
   return (
@@ -63,14 +61,9 @@ export default function BookCard({ book, onClick, menu, onToggleFavorite }: Book
           ) : (
             book.favorite && <span className="inline-flex size-8 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm" title="Favourite"><Star className="h-4 w-4 fill-amber-300 text-amber-300" aria-label="Favourite" /></span>
           )}
-          {hasMenu && <Menu label={`Options for ${book.title}`} entries={entries} buttonClassName={`${coverBtn} ${hoverOnly}`} />}
+          {hasMenu && <Menu compact label={`Options for ${book.title}`} entries={entries} buttonClassName={`${coverBtn} ${hoverOnly}`} />}
         </div>
 
-        {book.progress > 0 && (
-          <div className="absolute inset-x-0 bottom-0 h-1 bg-black/50" role="progressbar" aria-valuenow={book.progress} aria-valuemin={0} aria-valuemax={100} aria-label="Reading progress">
-            <div className={`h-full ${book.progress >= 100 ? 'bg-green-400' : 'bg-blue-400'}`} style={{ width: `${book.progress}%` }} />
-          </div>
-        )}
       </BookCover>
 
       <div className="flex flex-1 flex-col gap-2 p-3">
@@ -89,9 +82,9 @@ export default function BookCard({ book, onClick, menu, onToggleFavorite }: Book
 
         <div className="mt-auto flex items-center justify-between gap-2">
           <span className="max-w-[60%] truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-gray-300">{book.genre}</span>
-          {status && (
-            <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${status.className}`}>
-              {status.tone === 'reading' ? `${book.progress}%` : status.label}
+          {book.progress > 0 && (
+            <span className={`shrink-0 text-[11px] font-semibold tabular-nums ${book.progress >= 100 ? 'text-green-400' : 'text-blue-300'}`} title={book.progress >= 100 ? 'Finished' : `${book.progress}% read`}>
+              {book.progress}%
             </span>
           )}
         </div>

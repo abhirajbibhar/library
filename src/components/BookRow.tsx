@@ -23,7 +23,7 @@ export default function BookRow({ book, onClick, menu }: { book: Book; onClick: 
       </div>
       {menu && menu.length > 0 && (
         <div className="relative z-10 -mr-2 shrink-0">
-          <Menu label={`Options for ${book.title}`} entries={menu} />
+          <Menu compact label={`Options for ${book.title}`} entries={menu} />
         </div>
       )}
     </div>

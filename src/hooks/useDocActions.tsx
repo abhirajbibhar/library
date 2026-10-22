@@ -133,7 +133,7 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
   };
 
   const menuForDoc = (doc: PdfDocument): MenuEntry[] => [
-    { label: 'Open', icon: 'book', to: viewerPath(doc.id) },
+    { id: 'open', label: 'Open', icon: 'book', to: viewerPath(doc.id) },
     { id: 'favorite', label: doc.favorite ? 'Remove from favourites' : 'Add to favourites', icon: 'star', onSelect: () => void toggleFavorite(doc) },
     { label: offline.has(doc.id) ? 'Remove offline copy' : 'Save for offline', icon: 'download', onSelect: () => void toggleOffline(doc) },
     { heading: 'Organise' },
