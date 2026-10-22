@@ -316,6 +316,7 @@ One Cloudflare Worker serves both the built frontend (`dist/`, via Workers Stati
 | `#/book/<id>` | Book page: cover, rating, details, tags, progress, collections, notes; rename, move, version history, delete |
 | `#/reader/<id>` | The reader (EmbedPDF) with resume, progress, annotation sync and a notes panel. `?page=12` opens at page 12 |
 | `#/notes` | Every highlight and note: search, edit, delete, export (Markdown or CSV) |
+| `#/notebook`, `#/notebook/<YYYY-MM-DD>` | Daily notebook: to-dos with done or percentage and a remark, free notes, saved as Markdown (`_notebook/YYYY-MM-DD.md`) |
 | `#/quotes` | Quotes you picked (with author, book, year, page). Saved in `_library/quotes.json`; one is shown on the dashboard each day |
 | `#/collections`, `#/collections/<folder>` | Collections: every folder is a collection |
 | `#/streak`, `#/streak/<date>` | Real reading history from the reading log |
@@ -333,6 +334,7 @@ Old `#/viewer/<key>` links still work (they forward to the reader).
 
 ### API
 
+- `GET /api/notes` lists days that have a note; `GET|PUT|DELETE /api/notes/<YYYY-MM-DD>` read, save (`If-Match` stops a stale copy overwriting a newer one) and delete a day's Markdown. A day with no to-dos and no notes is deleted, not saved.
 - `GET /api/session` reports whether Cloudflare Access is being enforced.
 - `GET /api/annotations` is served from a self-repairing index file (`_library/annotations-index.json`) built a batch at a time, so it has no file-count cap. The response includes `pending` while the index is still being built.
 - `GET /api/documents` lists books (with progress, favourite, tags, details and cover).
@@ -375,3 +377,25 @@ Deploying: `npm run deploy` (wrangler builds the frontend first, see `[build]` i
 ### Installable app
 
 `public/manifest.webmanifest`, `public/sw.js` and `public/icons/` make the site installable. The service worker only caches the app's own files; PDFs, notes and progress always come from the network.
+
+### Daily notebook
+
+Each day is one plain Markdown file, `_notebook/2026-10-21.md`, laid out like an Obsidian daily note:
+
+```
+---
+date: 2026-10-21
+tags: [daily]
+---
+# Wednesday, 21 October 2026
+
+## To-do
+- [x] Finish chapter summary
+- [/] Review quotes (40%)
+  - remark: Got through half, finish tomorrow
+
+## Notes
+Anything you like, in Markdown.
+```
+
+To-dos use standard task syntax (`[ ]` not started, `[/]` in progress with a percentage, `[x]` done), so the files open fine in Obsidian or any Markdown app. The Plan tab is a checklist with a percentage slider and a remark per to-do; the Markdown tab edits the file directly (front matter and any extra headings you add are kept). Download one day (.md) or all days (.zip) from the notebook's menu. To work on the same files from Obsidian, the bucket is S3-compatible, so a sync plugin pointed at the `_notebook/` prefix can mirror them.

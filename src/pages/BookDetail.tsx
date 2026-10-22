@@ -39,9 +39,9 @@ export default function BookDetail() {
     <div className="max-w-5xl mx-auto space-y-8">
       {/* Hero */}
       <div className="flex flex-col md:flex-row gap-8">
-        <div className="w-full md:w-64 h-80 md:h-96 rounded-md flex items-center justify-center flex-shrink-0 relative overflow-hidden" style={{ backgroundColor: coverColor(book.title) }}>
+        <div className="w-44 sm:w-56 md:w-64 mx-auto md:mx-0 aspect-[5/7] rounded-md flex items-center justify-center flex-shrink-0 relative overflow-hidden" style={{ backgroundColor: book.cover ? '#1f2937' : coverColor(book.title) }}>
           {book.cover ? (
-            <img src={book.cover} alt={`Cover of ${book.title}`} className="absolute inset-0 w-full h-full object-cover" />
+            <img src={book.cover} alt={`Cover of ${book.title}`} className="absolute inset-0 w-full h-full object-contain" />
           ) : (
             <div className="text-8xl font-bold text-white/25 select-none">{book.title.charAt(0)}</div>
           )}

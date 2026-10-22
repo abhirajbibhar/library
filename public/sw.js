@@ -16,6 +16,7 @@ const API_COPY = [
   /^\/api\/metadata\/[^/]+$/,
   /^\/api\/annotations(\/[^/]+)?$/,
   /^\/api\/quotes$/,
+  /^\/api\/notes(\/[^/]+)?$/,
   /^\/api\/reading$/,
   /^\/api\/storage$/,
   /^\/api\/session$/,

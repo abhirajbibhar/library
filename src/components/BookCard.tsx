@@ -25,9 +25,10 @@ export default function BookCard({ book, onClick, menu }: BookCardProps) {
       className="group cursor-pointer bg-gray-900 rounded-md border border-gray-800 hover:border-gray-700 transition-all duration-200 hover:shadow-xl hover:shadow-blue-500/5 overflow-hidden"
     >
       {/* Cover */}
-      <div className="relative h-48 flex items-center justify-center overflow-hidden" style={{ backgroundColor: coverColor(book.title) }}>
+      <div className="relative aspect-[5/7] flex items-center justify-center overflow-hidden" style={{ backgroundColor: showImage ? '#1f2937' : coverColor(book.title) }}>
         {showImage ? (
-          <img src={book.cover} alt="" loading="lazy" onError={() => setBroken(true)} className="absolute inset-0 w-full h-full object-cover" />
+          // object-contain: the whole page 1 is visible, nothing is cropped away
+          <img src={book.cover} alt="" loading="lazy" onError={() => setBroken(true)} className="absolute inset-0 w-full h-full object-contain" />
         ) : (
           <div className="text-6xl font-bold text-white/25 select-none">{book.title.charAt(0)}</div>
         )}

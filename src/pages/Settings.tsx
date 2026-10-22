@@ -128,7 +128,7 @@ export default function Settings() {
             <p className="text-3xl font-bold text-white">{formatSize(storage.total)} <span className="text-sm font-normal text-gray-400">used</span></p>
             <ul className="mt-3 divide-y divide-gray-800 text-sm">
               {storage.folders.map((f) => <Row key={f.name} label={f.name} value={formatSize(f.size)} />)}
-              <Row label="Covers and settings" value={formatSize(storage.other)} />
+              <Row label="Covers, notebook and settings" value={formatSize(storage.other)} />
               <Row label="Highlights and notes" value={formatSize(storage.annotations)} />
               <Row label="Earlier versions" value={formatSize(storage.backups)} />
               <Row label="Trash" value={formatSize(storage.trash)} />

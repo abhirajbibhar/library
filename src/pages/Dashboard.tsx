@@ -1,13 +1,55 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '../store';
 import { useBookActions } from '../hooks/useBookActions';
+import { useFetch } from '../hooks/useFetch';
+import { loadNote, parseNote, summarize, today } from '../lib/notes';
 import { coverColor, formatDuration, localDay, plural } from '../lib/format';
 import BookCard from '../components/BookCard';
 import QuoteSection from '../components/QuoteSection';
 import { 
   BookOpen, TrendingUp, StickyNote, Highlighter, 
-  Flame, Clock, ArrowRight, Sparkles, Folder, Star, Upload
+  Flame, Clock, ArrowRight, Sparkles, Folder, Star, Upload, NotebookPen
 } from 'lucide-react';
+
+/** The morning view: today's to-dos from the notebook, or a nudge to plan the day. */
+function TodayPlan() {
+  const { data } = useFetch(() => loadNote(today()));
+  const tasks = parseNote(data?.text ?? '').tasks;
+  const { total, done, percent } = summarize(tasks);
+  const open = tasks.filter(t => t.percent < 100).slice(0, 4);
+
+  return (
+    <section className="bg-gray-900 rounded-md border border-gray-800 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2"><NotebookPen className="w-5 h-5 text-blue-400" />Today’s plan</h2>
+        <Link to="/notebook" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">Open notebook <ArrowRight className="w-4 h-4" /></Link>
+      </div>
+      {total === 0 ? (
+        <p className="text-sm text-gray-400 mt-3">Nothing planned yet. <Link to="/notebook" className="text-blue-400 hover:text-blue-300 underline">Write today’s to-dos</Link> and start your day.</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 mt-4">
+            <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${percent}%` }} /></div>
+            <span className="text-sm text-gray-300 shrink-0">{done} of {total} done</span>
+          </div>
+          {open.length > 0 ? (
+            <ul className="mt-3 space-y-1.5">
+              {open.map((t, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm text-gray-200">
+                  <span aria-hidden="true" className={`w-3.5 h-3.5 rounded border shrink-0 ${t.percent > 0 ? 'border-amber-500' : 'border-gray-600'}`} />
+                  <span className="truncate">{t.text}</span>
+                  {t.percent > 0 && <span className="text-xs text-amber-300 shrink-0">{t.percent}%</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-green-300 mt-3">Everything on today’s list is done.</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -43,6 +85,8 @@ export default function Dashboard() {
         </h1>
         <p className="text-gray-400 mt-2 text-sm sm:text-base">Here's your library overview</p>
       </div>
+
+      <TodayPlan />
 
       {/* Quote Section */}
       <QuoteSection />
@@ -89,7 +133,7 @@ export default function Dashboard() {
               View all <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
             {continueReading.map(book => (
               <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
             ))}
@@ -109,7 +153,7 @@ export default function Dashboard() {
               View all <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
             {favourites.map(book => (
               <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
             ))}
@@ -139,7 +183,7 @@ export default function Dashboard() {
             View all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           {recentlyAdded.map(book => (
             <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
           ))}

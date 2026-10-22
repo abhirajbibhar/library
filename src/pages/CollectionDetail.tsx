@@ -46,7 +46,7 @@ export default function CollectionDetail() {
         <Menu label="Collection options" entries={menuForFolder(name)} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         {list.map((book) => (
           <BookCard key={book.id} book={book} menu={menuFor(book)} onClick={() => navigate(`/book/${book.id}`)} />
         ))}

@@ -320,6 +320,14 @@ export default {
         return await patchDocState(key, request, env, cors);
       }
 
+      if (path === '/api/notes' && request.method === 'GET') return await listNotes(env, cors);
+      if (path.startsWith('/api/notes/') && path.length > '/api/notes/'.length) {
+        const date = noteDateFrom(path, '/api/notes/');
+        if (request.method === 'GET') return await getNote(date, env, cors);
+        if (request.method === 'PUT') return await putNote(date, request, env, cors);
+        if (request.method === 'DELETE') return await deleteNote(date, env, cors);
+      }
+
       if (path === '/api/quotes') {
         if (request.method === 'GET') return await getQuotes(env, cors);
         if (request.method === 'PUT') return await putQuotes(request, env, cors);
@@ -812,6 +820,63 @@ async function putQuotes(request: Request, env: Env, cors: Record<string, string
     f.quotes = quotes;
   });
   return json({ success: true, quotes }, cors);
+}
+
+// ---- notebook: one Markdown file per day (_notebook/YYYY-MM-DD.md), like Obsidian's daily notes
+
+const NOTES_FOLDER = '_notebook';
+const MAX_NOTE_BYTES = 200 * 1024;
+
+function validNoteDate(d: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const t = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+}
+const noteKey = (date: string) => `${NOTES_FOLDER}/${date}.md`;
+
+function noteDateFrom(path: string, base: string): string {
+  const date = decodeURIComponent(path.slice(base.length));
+  if (!validNoteDate(date)) throw new HttpError(400, 'Invalid date (use YYYY-MM-DD)');
+  return date;
+}
+
+async function listNotes(env: Env, cors: Record<string, string>): Promise<Response> {
+  const objs = await listAll(env, `${NOTES_FOLDER}/`);
+  const items = objs
+    .filter((o) => /^_notebook\/\d{4}-\d{2}-\d{2}\.md$/.test(o.key))
+    .map((o) => ({ date: o.key.slice(NOTES_FOLDER.length + 1, NOTES_FOLDER.length + 11), size: o.size, modified: o.uploaded.toISOString() }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 5000);
+  return json(items, cors);
+}
+
+async function getNote(date: string, env: Env, cors: Record<string, string>): Promise<Response> {
+  const obj = await env.PDF_BUCKET.get(noteKey(date));
+  if (!obj) return json({ error: 'No note for this day' }, cors, 404);
+  const headers = new Headers(cors);
+  headers.set('Content-Type', 'text/markdown; charset=utf-8');
+  headers.set('ETag', obj.httpEtag);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('Access-Control-Expose-Headers', 'ETag');
+  return new Response(obj.body, { headers });
+}
+
+/** Saves a day's Markdown. If-Match (the ETag from the last load/save) makes it refuse to overwrite a newer copy. */
+async function putNote(date: string, request: Request, env: Env, cors: Record<string, string>): Promise<Response> {
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > MAX_NOTE_BYTES) throw new HttpError(413, 'This note is too long');
+  if (!text.trim()) throw new HttpError(400, 'An empty note is deleted, not saved');
+
+  const ifMatch = request.headers.get('If-Match')?.replace(/^W\//, '').replace(/"/g, '');
+  const onlyIf = ifMatch ? { etagMatches: ifMatch } : request.headers.get('If-None-Match') === '*' ? { etagDoesNotMatch: '*' } : undefined;
+  const result = await env.PDF_BUCKET.put(noteKey(date), text, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' }, onlyIf });
+  if (!result) throw new HttpError(412, 'This note was changed somewhere else');
+  return json({ success: true, etag: result.httpEtag }, cors);
+}
+
+async function deleteNote(date: string, env: Env, cors: Record<string, string>): Promise<Response> {
+  await env.PDF_BUCKET.delete(noteKey(date));
+  return json({ success: true }, cors);
 }
 
 // ---- covers

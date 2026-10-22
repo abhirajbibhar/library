@@ -13,6 +13,7 @@ import DayStreak from './pages/DayStreak';
 import DayDetail from './pages/DayDetail';
 import Trash from './pages/Trash';
 import Quotes from './pages/Quotes';
+import Notebook from './pages/Notebook';
 import Settings from './pages/Settings';
 import { bookIdFor } from './lib/format';
 
@@ -49,6 +50,8 @@ export default function App() {
           <Route path="/streak" element={<DayStreak />} />
           <Route path="/streak/:date" element={<DayDetail />} />
           <Route path="/quotes" element={<Quotes />} />
+          <Route path="/notebook" element={<Notebook />} />
+          <Route path="/notebook/:date" element={<Notebook />} />
           <Route path="/trash" element={<Trash />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />

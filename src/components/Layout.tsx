@@ -7,13 +7,14 @@ import { clearOfflineData } from '../lib/offline';
 import { hasMod } from '../lib/platform';
 import { 
   LayoutDashboard, Library, StickyNote, FolderOpen, 
-  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw, LogOut
+  Settings, Menu, X, Cloud, ArrowLeft, Flame, Trash2, Quote, RefreshCw, LogOut, NotebookPen
 } from 'lucide-react';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/library', label: 'Library', icon: Library },
   { path: '/notes', label: 'Notes & Highlights', icon: StickyNote },
+  { path: '/notebook', label: 'Notebook', icon: NotebookPen },
   { path: '/collections', label: 'Collections', icon: FolderOpen },
   { path: '/quotes', label: 'Quotes', icon: Quote },
   { path: '/streak', label: 'Day Streak', icon: Flame },
