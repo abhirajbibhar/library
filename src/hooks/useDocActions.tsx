@@ -134,19 +134,21 @@ export function useDocActions(documents: PdfDocument[], onChanged: (change: DocC
 
   const menuForDoc = (doc: PdfDocument): MenuEntry[] => [
     { label: 'Open', icon: 'book', to: viewerPath(doc.id) },
-    { label: doc.favorite ? 'Remove from favourites' : 'Add to favourites', icon: 'star', onSelect: () => void toggleFavorite(doc) },
+    { id: 'favorite', label: doc.favorite ? 'Remove from favourites' : 'Add to favourites', icon: 'star', onSelect: () => void toggleFavorite(doc) },
     { label: offline.has(doc.id) ? 'Remove offline copy' : 'Save for offline', icon: 'download', onSelect: () => void toggleOffline(doc) },
-    { heading: 'Manage' },
+    { heading: 'Organise' },
     { label: 'Rename', icon: 'pen', onSelect: () => setDlg({ type: 'rename-doc', doc }) },
     { label: 'Move to…', icon: 'folder', onSelect: () => setDlg({ type: 'move-doc', doc }) },
     { label: 'Edit tags', icon: 'tag', onSelect: () => setDlg({ type: 'tags', doc }) },
-    { label: 'Version history', icon: 'history', onSelect: () => setDlg({ type: 'versions', doc }) },
+    { heading: 'Cover & files' },
     { label: 'Update cover', icon: 'image', onSelect: () => void updateCover(doc) },
+    { label: 'Version history', icon: 'history', onSelect: () => setDlg({ type: 'versions', doc }) },
+    { heading: '' },
     { label: 'Delete', icon: 'trash', danger: true, onSelect: () => setDlg({ type: 'trash-doc', doc }) },
   ];
 
   const menuForFolder = (folder: string, title: string, docs: PdfDocument[]): MenuEntry[] => [
-    { label: 'Add files', icon: 'upload', to: `/upload?folder=${encodeURIComponent(folder)}` },
+    { label: 'Add files', icon: 'upload', to: `/library?upload=1&folder=${encodeURIComponent(folder)}` },
     { label: 'Draw missing covers', icon: 'image', onSelect: () => void generateCovers(docs) },
     { label: 'Rename folder', icon: 'pen', onSelect: () => setDlg({ type: 'rename-folder', folder, docs }) },
     { label: 'Delete folder', icon: 'trash', danger: true, onSelect: () => setDlg({ type: 'trash-folder', folder, title, docs }) },

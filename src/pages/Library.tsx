@@ -170,7 +170,7 @@ export default function Library() {
       {showUploadModal && (
         <UploadModal
           onClose={() => setShowUploadModal(false)}
-          defaultFolder={filter.startsWith('folder:') ? filter.slice(7) : undefined}
+          defaultFolder={params.get('folder') ?? (filter.startsWith('folder:') ? filter.slice(7) : undefined)}
         />
       )}
       {dialog}

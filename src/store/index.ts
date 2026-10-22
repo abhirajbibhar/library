@@ -17,6 +17,7 @@ import { coverUrl } from '../lib/cover';
 import { bookIdFor, formatSize, localDay, progressPct, readingStreak } from '../lib/format';
 export { bookIdFor };
 import { keyOf } from '../lib/names';
+import { isSavedOffline, removeOffline } from '../lib/offline';
 import type { Annotation, AnnotationSummary, Book, DocMeta, FolderInfo, LibraryStats, PdfDocument, ReadingLog, StorageOverview, UserQuote } from '../types';
 
 /**
@@ -276,7 +277,6 @@ const actions: Actions = {
     await trashDocument(b.r2Key); // server moves the PDF with its annotations, cover and backups to the trash
     // Leave nothing of this book on this device: cached offline copy and in-memory notes/highlights.
     patch({ annotations: state.annotations.filter((x) => x.r2Key !== b.r2Key) });
-    const { removeOffline, isSavedOffline } = await import('../lib/offline');
     if (isSavedOffline(b.r2Key)) await removeOffline(b.r2Key).catch(() => {});
     await refresh(true);
   },
